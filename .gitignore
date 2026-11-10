@@ -1,0 +1,10 @@
+node_modules/
+.next/
+data/
+.env
+.env.local
+*.log
+.superpowers/
+playwright-report/
+test-results/
+*.tsbuildinfo
