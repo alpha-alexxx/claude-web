@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# app data (SQLite, integration env) — never commit
+/data/
+
 # next.js
 /.next/
 /out/

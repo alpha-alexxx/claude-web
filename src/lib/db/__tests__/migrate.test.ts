@@ -37,7 +37,6 @@ describe("migrate", () => {
     ).map((r) => r.name);
     for (const t of [
       "users",
-      "sessions",
       "conversations",
       "messages",
       "tool_calls",
@@ -47,6 +46,8 @@ describe("migrate", () => {
     ]) {
       expect(tables).toContain(t);
     }
+    // Clerk owns sessions; storing our own would fork the source of truth.
+    expect(tables).not.toContain("sessions");
     db.close();
   });
 
@@ -68,36 +69,53 @@ describe("migrate", () => {
     expect(() =>
       db
         .prepare(
-          "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)",
+          "INSERT INTO users (id, email, role) VALUES (?, ?, ?)",
         )
-        .run("u1", "alice", "hash", "superuser"),
+        .run("user_1", "alice@example.com", "superuser"),
     ).toThrow();
     expect(() =>
       db
-        .prepare(
-          "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)",
-        )
-        .run("u1", "alice", "hash", "admin"),
+        .prepare("INSERT INTO users (id, email, role) VALUES (?, ?, ?)")
+        .run("user_1", "alice@example.com", "admin"),
     ).not.toThrow();
     db.close();
   });
 
-  it("cascades session deletion when a user is deleted", () => {
+  it("keeps emails unique case-insensitively", () => {
+    const db = new DatabaseSync(path.join(dir, "test.db"));
+    migrate(db);
+    db.prepare("INSERT INTO users (id, email, role) VALUES (?, ?, ?)").run(
+      "user_1",
+      "Alice@Example.com",
+      "user",
+    );
+    expect(() =>
+      db
+        .prepare("INSERT INTO users (id, email, role) VALUES (?, ?, ?)")
+        .run("user_2", "alice@example.com", "user"),
+    ).toThrow();
+    db.close();
+  });
+
+  it("cascades conversations when a user row is deleted", () => {
     const db = new DatabaseSync(path.join(dir, "test.db"));
     migrate(db);
 
-    db.prepare(
-      "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)",
-    ).run("u1", "alice", "hash", "admin");
-    db.prepare(
-      "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
-    ).run("tokhash", "u1", "2030-01-01T00:00:00Z");
+    db.prepare("INSERT INTO users (id, email, role) VALUES (?, ?, ?)").run(
+      "user_1",
+      "alice@example.com",
+      "admin",
+    );
+    db.prepare("INSERT INTO conversations (id, user_id) VALUES (?, ?)").run(
+      "conv_1",
+      "user_1",
+    );
 
-    db.prepare("DELETE FROM users WHERE id = ?").run("u1");
-    const sessions = db
-      .prepare("SELECT COUNT(*) AS n FROM sessions")
+    db.prepare("DELETE FROM users WHERE id = ?").run("user_1");
+    const conversations = db
+      .prepare("SELECT COUNT(*) AS n FROM conversations")
       .get() as { n: number };
-    expect(sessions.n).toBe(0);
+    expect(conversations.n).toBe(0);
     db.close();
   });
 

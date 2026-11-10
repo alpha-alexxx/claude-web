@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { Show, UserButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SIGN_IN_URL } from "@/lib/auth/routes";
 
 export default function Home() {
   return (
@@ -11,9 +14,21 @@ export default function Home() {
         plugins and settings — no terminal needed.
       </p>
       <div className="flex items-center gap-3">
-        <Button asChild>
-          <Link href="/login">Sign in</Link>
-        </Button>
+        {/* <Show> reads the request in a Server Component, and the project runs
+            with `cacheComponents: true`, so it must sit under <Suspense>. */}
+        <Suspense fallback={<div className="h-9 w-32" aria-hidden />}>
+          <Show when="signed-out">
+            <Button asChild>
+              <Link href={SIGN_IN_URL}>Sign in</Link>
+            </Button>
+          </Show>
+          <Show when="signed-in">
+            <Button asChild>
+              <Link href="/chat">Open chat</Link>
+            </Button>
+            <UserButton />
+          </Show>
+        </Suspense>
         <ThemeToggle />
       </div>
     </main>

@@ -22,8 +22,6 @@ export interface RateLimitResult {
 }
 
 export const RATE_LIMITS = {
-  /** 5 login attempts / 15 min per IP+username */
-  login: { max: 5, windowMs: 15 * 60_000 },
   /** 20 general API requests / min per IP */
   api: { max: 20, windowMs: 60_000 },
   /** 10 chat turns / min per user */

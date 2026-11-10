@@ -5,8 +5,8 @@ import { z } from "zod";
  * Never import from client components. Access via `getEnv()` (cached) —
  * reading process.env directly elsewhere is what this module exists to stop.
  *
- * Fails fast at boot: a missing/short SESSION_SECRET or a malformed numeric
- * setting throws here rather than producing a half-configured server.
+ * Fails fast at boot: missing Clerk keys or a malformed numeric setting throw
+ * here rather than producing a half-configured server.
  */
 
 const boolish = z
@@ -29,20 +29,27 @@ const EnvSchema = z.object({
   /** SQLite file path. Parent dir is created by the db client. */
   DATABASE_PATH: z.string().default("./data/claude-web.db"),
 
-  /** >=32 bytes; used for CSRF HMAC signing and future cookie binding. */
-  SESSION_SECRET: z
+  /** Clerk server key. Never imported by client code — env.ts is
+   * server-only by convention and by the `server-only` import below. */
+  CLERK_SECRET_KEY: z
     .string()
-    .min(32, "SESSION_SECRET must be at least 32 bytes (generate with: openssl rand -base64 48)"),
+    .min(1, "CLERK_SECRET_KEY is required (set it in .env)")
+    .startsWith("sk_", "CLERK_SECRET_KEY must start with sk_"),
+
+  /** Clerk publishable key. Safe to ship to the browser by design, but it is
+   * still read here so a typo fails at boot instead of at first render. */
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z
+    .string()
+    .min(1, "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is required (set it in .env)")
+    .startsWith(
+      "pk_",
+      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY must start with pk_ — a secret key must never be placed in a NEXT_PUBLIC_ variable",
+    ),
 
   HOST: z.string().default("127.0.0.1"),
   PORT: z.coerce.number().int().min(1).max(65535).default(8765),
 
-  /** Whether to mark the session cookie Secure. `auto` = true when the
-   * request came in over HTTPS (x-forwarded-proto, only honored when
-   * TRUST_PROXY). */
-  COOKIE_SECURE: z.enum(["auto", "true", "false"]).default("auto"),
-
-  /** Trust X-Forwarded-For / X-Forwarded-Proto from the direct peer (your
+  /** Trust X-Forwarded-For from the direct peer (your
    * reverse proxy). Leave false when exposed directly. */
   TRUST_PROXY: boolish,
 
@@ -76,10 +83,6 @@ const EnvSchema = z.object({
   /** Exact-pinned package specs that Integrations may install. Empty list =
    * server-side installs are disabled entirely. */
   INSTALL_ALLOWLIST: csvList(),
-
-  /** Allow /api/setup from non-loopback origins (single-operator VPS with a
-   * tunnel, etc). Off by default. */
-  SETUP_ALLOW_REMOTE: boolish,
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;
