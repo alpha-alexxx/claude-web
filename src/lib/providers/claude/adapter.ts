@@ -45,13 +45,15 @@ export class ClaudeAdapter implements ProviderAdapter {
 
   async inventory(): Promise<ProviderInventory> {
     // The SDK bundles its own CLI binary — nothing to detect at startup.
-    // Credential source is read from the first live session's init frame
-    // (apiKeySource), surfaces in the health check.
+    // Credential source and version arrive on the first live session's init
+    // frame; until then both stay unknown rather than guessed (ledgered:
+    // no probe is cheaper than starting a session).
+    const live = this.pool.health();
     return {
       id: this.id,
       installed: true,
-      version: null, // resolved lazily from a live session (claude_code_version)
-      authed: null, // no probe cheaper than starting a session — see health check
+      version: live.cliVersion,
+      authed: live.apiKeySource === null ? null : true,
       reason: null,
       models: DEFAULT_MODELS,
     };
@@ -77,6 +79,20 @@ export class ClaudeAdapter implements ProviderAdapter {
   /** Live pool session handle — used by the health check and resume logic. */
   poolSession(conversationId: string) {
     return this.pool.getIfLive(conversationId);
+  }
+
+  /** Stop-button path: peek without ever spawning a CLI process. */
+  liveSession(conversationId: string): ActiveSession | null {
+    const s = this.pool.getIfLive(conversationId);
+    return s
+      ? {
+          send: (text) => s.send(text),
+          interrupt: () => s.interrupt(),
+          onEvent: (cb) => s.onEvent(cb),
+          offEvent: (cb) => s.offEvent(cb),
+          close: () => s.close(),
+        }
+      : null;
   }
 
   size(): number {

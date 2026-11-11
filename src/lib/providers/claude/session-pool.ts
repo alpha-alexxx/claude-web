@@ -52,6 +52,8 @@ export interface PoolSession {
   cliSessionId(): string | null;
   /** Credential source reported by the CLI (health check). */
   apiKeySource(): string | null;
+  /** CLI version from the init frame (health check). */
+  cliVersion(): string | null;
   onEvent(cb: (event: TurnEvent) => void): void;
   /** Detach a listener (SSE disconnect). */
   offEvent(cb: (event: TurnEvent) => void): void;
@@ -78,7 +80,8 @@ class PromptChannel implements AsyncIterable<SDKUserMessage> {
     }
   }
 
-  [Symbol.asyncIterator](): AsyncIterable<SDKUserMessage> {
+  [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
+    // this is both iterable and iterator (the SDK consumes it in one pass)
     return this;
   }
 
@@ -107,6 +110,7 @@ class PoolSessionImpl implements PoolSession {
   private startedAt = 0;
   private cliSess: string | null = null;
   private authSource: string | null = null;
+  private cliVer: string | null = null;
   private dead = false;
   private closed = false;
 
@@ -188,6 +192,10 @@ class PoolSessionImpl implements PoolSession {
 
   apiKeySource(): string | null {
     return this.authSource;
+  }
+
+  cliVersion(): string | null {
+    return this.cliVer;
   }
 
   onEvent(cb: (event: TurnEvent) => void): void {
@@ -276,6 +284,9 @@ class PoolSessionImpl implements PoolSession {
     }
     if (this.authSource === null && typeof rec["apiKeySource"] === "string") {
       this.authSource = rec["apiKeySource"] as string;
+    }
+    if (this.cliVer === null && typeof rec["claude_code_version"] === "string") {
+      this.cliVer = rec["claude_code_version"] as string;
     }
     const events = mapSdkMessage(raw, this.turnState);
     for (const event of events) {
@@ -394,6 +405,21 @@ export class ClaudeSessionPool {
 
   size(): number {
     return this.sessions.size;
+  }
+
+  /**
+   * Aggregate over live sessions for the health check: any session that has
+   * reported its init frame contributes the credential source and CLI
+   * version (identical across sessions of one CLI install).
+   */
+  health(): { active: number; apiKeySource: string | null; cliVersion: string | null } {
+    let apiKeySource: string | null = null;
+    let cliVersion: string | null = null;
+    for (const s of this.sessions.values()) {
+      apiKeySource = apiKeySource ?? s.apiKeySource();
+      cliVersion = cliVersion ?? s.cliVersion();
+    }
+    return { active: this.sessions.size, apiKeySource, cliVersion };
   }
 
   /** Close every session (tests and graceful shutdown). */

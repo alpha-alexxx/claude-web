@@ -73,15 +73,14 @@ export interface ModelInfo {
 }
 
 export interface SessionOpts {
-  /** Pool key: the conversation's own id. */
+  /** Pool key: user-scoped composite (`userId:conversationId`) so two users
+   * can never steer each other's sessions. */
   conversationId: string;
   /** Per-conversation working directory (already containment-checked). */
   cwd: string;
   model: string | null;
   /** Resume a CLI-own session id when reopening a conversation. */
   resumeSessionId?: string | null;
-  /** Server-side event listener for the turn stream. */
-  onEvent: (event: TurnEvent) => void;
   /** Resolves an interactive permission request; null = deny. */
   onPermission?: (
     toolName: string,
@@ -106,6 +105,12 @@ export interface ProviderAdapter {
   capabilities: ProviderCapabilities;
   inventory(): Promise<ProviderInventory>;
   startsSession(opts: SessionOpts): ActiveSession | Promise<ActiveSession>;
+  /**
+   * Peek a live session WITHOUT creating one (Stop button, live re-attach).
+   * Null when no session exists for the key. Absent = provider lacks a
+   * pool and cannot peek.
+   */
+  liveSession?(conversationId: string): ActiveSession | null;
 }
 
 export interface ActiveSession {

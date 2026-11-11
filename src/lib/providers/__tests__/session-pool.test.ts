@@ -163,6 +163,20 @@ const RESULT_FRAME: unknown = {
 // The real wire order with includePartialMessages: partial deltas first (the
 // mapper emits text from THEM), then the full assistant message (text blocks
 // suppressed in partial mode — deltas own delivery), then the result frame.
+/** Init frame as the CLI emits it before every turn (session metadata). */
+const INIT_FRAME: unknown = {
+  type: "system",
+  subtype: "init",
+  apiKeySource: "oauth",
+  claude_code_version: "2.1.322",
+  cwd: "/tmp",
+  tools: [],
+  mcp_servers: {},
+  slash_commands: [],
+  session_id: "s1",
+  uuid: "u0",
+};
+
 const OK_TURN: Record<number, unknown[]> = {
   1: [TEXT_DELTA("hello"), ASSISTANT_FRAME("hello"), RESULT_FRAME],
 };
@@ -341,6 +355,32 @@ describe("session-pool", () => {
     expect(session.cliSessionId()).toBeNull();
     await session.send("hi");
     await vi.waitFor(() => expect(session.cliSessionId()).toBe("s1"));
+  });
+
+  it("exposes the CLI version and credential source from the init frame", async () => {
+    const INIT_TURN = { 1: [INIT_FRAME, TEXT_DELTA("hi"), RESULT_FRAME] };
+    const { factory } = makeFactory(INIT_TURN);
+    const session = track(mkPool(factory).get("conv-v", GET_OPTS));
+    await session.send("hi");
+    await vi.waitFor(() => expect(session.cliVersion()).toBe("2.1.322"));
+    expect(session.apiKeySource()).toBe("oauth");
+  });
+
+  it("health() aggregates the first reported credential source and version", async () => {
+    const INIT_TURN = { 1: [INIT_FRAME, TEXT_DELTA("hi"), RESULT_FRAME] };
+    const { factory } = makeFactory(INIT_TURN);
+    const pool = mkPool(factory, 2);
+    expect(pool.health()).toEqual({ active: 0, apiKeySource: null, cliVersion: null });
+    const s1 = track(pool.get("a", GET_OPTS));
+    track(pool.get("b", GET_OPTS)); // no turn — has not reported yet
+    await s1.send("hi");
+    await vi.waitFor(() =>
+      expect(pool.health()).toEqual({
+        active: 2,
+        apiKeySource: "oauth",
+        cliVersion: "2.1.322",
+      }),
+    );
   });
 
   it("forwards setModel() to the query (model picker mid-session)", async () => {

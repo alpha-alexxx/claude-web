@@ -9,6 +9,9 @@ export default defineConfig({
     // testable while builds keep the real guard.
     alias: {
       "server-only": path.resolve(__dirname, "src/test/server-only-stub.ts"),
+      // Same mapping as tsconfig paths — route tests import app modules by
+      // their app-relative specifier.
+      "@": path.resolve(__dirname, "src"),
     },
   },
   test: {
