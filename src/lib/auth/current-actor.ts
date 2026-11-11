@@ -1,6 +1,6 @@
 import "server-only";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { getDb } from "../db/client";
+import { getBootDb } from "../db/boot";
 import { ensureUser, type UserRow } from "../db/users-repo";
 import { authorize, type AuthDecision } from "./authorize";
 
@@ -30,7 +30,7 @@ export async function currentActor(): Promise<UserRow | null> {
     user?.emailAddresses[0]?.emailAddress;
   if (!email) return null; // no usable identity without an email address
 
-  const db = getDb();
+  const db = getBootDb();
   return ensureUser(db, {
     id: userId,
     email,
