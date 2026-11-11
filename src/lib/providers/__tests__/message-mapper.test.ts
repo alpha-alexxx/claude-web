@@ -1,8 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  mapSdkMessage,
-  newTurnState,
-} from "../claude/message-mapper";
+import { mapSdkMessage, newTurnState } from "../claude/message-mapper";
+import { OUTPUT_TRUNCATION_MARK } from "../types";
 
 /** Minimal SDK-shaped assistant message with the given content blocks. */
 function assistantMsg(content: unknown[], overrides: Record<string, unknown> = {}) {
@@ -160,6 +158,30 @@ describe("message-mapper", () => {
       s,
     );
     expect(out).toEqual([{ type: "tool_end", id: "tu_1", ok: false, output: "boom" }]);
+  });
+
+  it("caps huge tool output and marks the truncation visibly", () => {
+    const s = newTurnState();
+    const out = mapSdkMessage(
+      userToolResultMsg([
+        { type: "tool_result", tool_use_id: "tu_1", content: "x".repeat(50_000), is_error: false },
+      ]),
+      s,
+    );
+    const event = out[0] as { output: string };
+    // Capped well below the input, and the marker tells the reader why.
+    expect(event.output.length).toBeLessThan(50_000);
+    expect(event.output.endsWith(OUTPUT_TRUNCATION_MARK)).toBe(true);
+    expect(event.output.startsWith("x".repeat(100))).toBe(true);
+  });
+
+  it("does not mark output that fit under the cap", () => {
+    const s = newTurnState();
+    const out = mapSdkMessage(
+      userToolResultMsg([{ type: "tool_result", tool_use_id: "tu_1", content: "short", is_error: false }]),
+      s,
+    );
+    expect((out[0] as { output: string }).output).toBe("short");
   });
 
   it("emits a single turn_end from the result message, with usage and cost", () => {

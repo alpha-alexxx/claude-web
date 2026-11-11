@@ -12,9 +12,11 @@ import { listProviderSummaries } from "@/lib/providers/registry";
  * Auth-gated and no-store: roots are host filesystem paths, and provider
  * inventory changes as soon as a session reports. Env is read server-side
  * only; the payload carries the derived roots, never the raw env.
+ *
+ * No segment config: `cacheComponents` rejects `dynamic = "force-dynamic"` at
+ * build time; `requireActor` reads the session cookie, so this route is
+ * request-time already.
  */
-
-export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<Response> {
   const decision = await requireActor("user");

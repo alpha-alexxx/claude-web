@@ -1,5 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { TurnEvent } from "../types";
+import { OUTPUT_TRUNCATION_MARK, type TurnEvent } from "../types";
 
 /**
  * Maps one SDK message (from Query's AsyncGenerator) to zero or more neutral
@@ -44,6 +44,18 @@ export function newTurnState(opts?: { partial: boolean }): TurnState {
 }
 
 const MAX_TOOL_OUTPUT_CHARS = 12_000;
+
+/**
+ * Appended when output is capped. A truncation the UI can see is a fact the
+ * user can act on ("re-run and grep"); silent clipping reads as a complete
+ * result that happens to end mid-sentence. Defined in the neutral contract so
+ * the UI can test for it without importing this adapter.
+ */
+function capOutput(text: string): string {
+  return text.length > MAX_TOOL_OUTPUT_CHARS
+    ? text.slice(0, MAX_TOOL_OUTPUT_CHARS) + OUTPUT_TRUNCATION_MARK
+    : text;
+}
 
 /** One-line, tool-neutral preview of a tool call for the UI card header. */
 export function toolSummary(name: string, input: Record<string, unknown>): string {
@@ -170,7 +182,7 @@ export function mapSdkMessage(raw: SDKMessage | unknown, state: TurnState): Turn
         type: "tool_end",
         id,
         ok: !isError,
-        output: resultText(block["content"]).slice(0, MAX_TOOL_OUTPUT_CHARS),
+        output: capOutput(resultText(block["content"])),
       });
     }
     return out;

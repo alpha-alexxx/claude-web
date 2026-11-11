@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  answerPermissionCard,
   initialView,
   pushUserMessage,
   reduceTurnEvent,
@@ -175,6 +176,69 @@ describe("block accumulation", () => {
     expect(card.card.requestId).toBe("req-1");
     expect(card.card.toolName).toBe("Bash");
     expect(card.card.status).toBe("pending");
+  });
+});
+
+describe("answering a permission card", () => {
+  const REQUEST: TurnEvent = {
+    type: "permission_request",
+    requestId: "req-1",
+    toolName: "Bash",
+    toolUseId: "tu-1",
+    input: { command: "ls" },
+    displayHint: "Bash(ls)",
+  };
+
+  function cardIn(v: TurnView, index = 0) {
+    const cards = v.turns
+      .filter((t): t is AssistantTurn => t.kind === "assistant")
+      .flatMap((t) => t.blocks)
+      .filter((b) => b.kind === "permission");
+    if (cards.length === 0) throw new Error("no permission card");
+    const card = cards[index];
+    if (card.kind !== "permission") throw new Error("unreachable");
+    return card.card;
+  }
+
+  it("flips the card to answered with the user's choice", () => {
+    let v = pushUserMessage(initialView(), "hi");
+    v = reduceTurnEvent(v, REQUEST);
+    v = answerPermissionCard(v, "req-1", "allow");
+    expect(cardIn(v)).toMatchObject({ requestId: "req-1", status: "answered", answer: "allow" });
+    // The transcript stays live — answering a card does not end the turn.
+    expect(v.running).toBe(true);
+  });
+
+  it("distinguishes deny from allow", () => {
+    let v = pushUserMessage(initialView(), "hi");
+    v = reduceTurnEvent(v, REQUEST);
+    v = answerPermissionCard(v, "req-1", "deny");
+    expect(cardIn(v)).toMatchObject({ status: "answered", answer: "deny" });
+  });
+
+  it("leaves other pending cards untouched", () => {
+    let v = pushUserMessage(initialView(), "hi");
+    v = reduceTurnEvent(v, { ...REQUEST, requestId: "req-a", toolUseId: "tu-a" } as TurnEvent);
+    v = reduceTurnEvent(v, { ...REQUEST, requestId: "req-b", toolUseId: "tu-b" } as TurnEvent);
+    v = answerPermissionCard(v, "req-b", "allow");
+    expect(cardIn(v, 0).status).toBe("pending");
+    expect(cardIn(v, 1)).toMatchObject({ status: "answered", answer: "allow" });
+  });
+
+  it("is a no-op for an unknown request id", () => {
+    let v = pushUserMessage(initialView(), "hi");
+    v = reduceTurnEvent(v, REQUEST);
+    const next = answerPermissionCard(v, "nope", "allow");
+    expect(next).toBe(v);
+  });
+
+  it("is a no-op on an already-answered card (a double click)", () => {
+    let v = pushUserMessage(initialView(), "hi");
+    v = reduceTurnEvent(v, REQUEST);
+    v = answerPermissionCard(v, "req-1", "deny");
+    const next = answerPermissionCard(v, "req-1", "allow");
+    expect(next).toBe(v);
+    expect(cardIn(v).answer).toBe("deny");
   });
 });
 

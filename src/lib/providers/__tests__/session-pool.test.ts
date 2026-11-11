@@ -398,8 +398,8 @@ describe("session-pool", () => {
       cwd: "/tmp",
       model: null,
       resumeSessionId: null,
-      onPermission: async (toolName) => {
-        answers.push(toolName);
+      onPermission: async ({ toolName, requestId, toolUseId }) => {
+        answers.push(`${toolName}:${requestId}:${toolUseId}`);
         return toolName === "Read"
           ? { behavior: "allow" }
           : { behavior: "deny", message: "not allowed" };
@@ -429,13 +429,62 @@ describe("session-pool", () => {
       updatedInput: { file_path: "/a" },
       toolUseID: "tu_2",
     });
-    expect(answers).toEqual(["Bash", "Read"]);
+    // The handler receives the WHOLE request — the answer route needs the
+    // requestId and toolUseId to correlate a browser click with this call.
+    expect(answers).toEqual(["Bash:req-1:tu_1", "Read:req-2:tu_2"]);
     const req = got.find((e) => e.type === "permission_request");
     if (!req || req.type !== "permission_request") throw new Error("no permission_request");
     expect(req.toolName).toBe("Bash");
     expect(req.requestId).toBe("req-1");
     expect(req.toolUseId).toBe("tu_1");
     expect(req.displayHint).toBe("Bash(rm -rf /)");
+  });
+
+  it("skips the card entirely for a tool already allowed for the session", async () => {
+    const { factory, calls } = makeFactory(OK_TURN);
+    const asked: string[] = [];
+    const session = track(mkPool(factory).get("conv-allow", {
+      cwd: "/tmp",
+      model: null,
+      resumeSessionId: null,
+      isToolAllowed: (toolName: string) => toolName === "Bash",
+      onPermission: async ({ toolName }) => {
+        asked.push(toolName);
+        return { behavior: "allow" };
+      },
+    }));
+    const got = await collect(session);
+    const canUseTool = (calls[0].opts as { canUseTool: CanUseTool }).canUseTool;
+    const res = await canUseTool(
+      "Bash",
+      { command: "ls" },
+      {
+        signal: new AbortController().signal,
+        toolUseID: "tu_ok",
+        requestId: "req-ok",
+      } as Parameters<CanUseTool>[2],
+    );
+    expect(res?.behavior).toBe("allow");
+    // No second prompt: the handler was never called and no card was emitted.
+    expect(asked).toEqual([]);
+    expect(got.some((e) => e.type === "permission_request")).toBe(false);
+  });
+
+  it("calls onSessionClosed exactly once when the session detaches", async () => {
+    const { factory } = makeFactory(OK_TURN);
+    const closed: string[] = [];
+    const p = mkPool(factory);
+    const s = track(p.get("conv-closed", {
+      cwd: "/tmp",
+      model: null,
+      resumeSessionId: null,
+      onSessionClosed: () => closed.push("closed"),
+    }));
+    await s.close();
+    expect(closed).toEqual(["closed"]);
+    // Idempotent teardown — a second close must not double-notify.
+    await s.close();
+    expect(closed).toEqual(["closed"]);
   });
 
   it("canUseTool denies safely when no permission handler is wired", async () => {

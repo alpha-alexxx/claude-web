@@ -12,9 +12,11 @@ import type { ProviderId } from "@/lib/providers/types";
  * conversation without a live session takes its next model from the turn
  * request instead (spawn options are only meaningful then), so 404 here is
  * a no-op for the UI, not an error to surface.
+ *
+ * No segment config: under `cacheComponents`, `dynamic = "force-dynamic"` is
+ * rejected at build time — the request-time APIs this handler already calls
+ * keep it out of the prerender.
  */
-
-export const dynamic = "force-dynamic";
 
 const BodySchema = z.object({
   /** "auto" = CLI default (clears any override). */

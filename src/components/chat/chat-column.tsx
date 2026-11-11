@@ -8,6 +8,8 @@ import {
   type ChatBootstrap,
 } from "@/lib/client/chat-state";
 import type { TurnEvent } from "@/lib/providers/types";
+import type { PermissionDecision } from "@/lib/client/chat-view";
+import { answerPermission } from "@/lib/client/turn-client";
 import { MessageList } from "./message-list";
 import { Composer } from "./composer";
 import { ModelPicker } from "./model-picker";
@@ -50,6 +52,28 @@ export function ChatColumn({ bootstrap }: { bootstrap: ChatBootstrap }) {
   const onBeforeSend = useCallback((text: string) => {
     dispatch({ type: "user_message", text });
   }, []);
+
+  /**
+   * Answer a permission card. The reducer flips it to answered immediately
+   * (optimistic — the card must stop looking clickable while the POST is in
+   * flight); a failed answer is surfaced but left answered, because the
+   * broker's 5-minute timeout is what settles the CLI call either way and
+   * re-opening the card would invite a second, conflicting answer.
+   */
+  const onAnswerPermission = useCallback(
+    async (requestId: string, decision: PermissionDecision) => {
+      dispatch({ type: "permission_answered", requestId, decision });
+      const result = await answerPermission({ requestId, decision });
+      if (!result.ok) {
+        toast.error(
+          result.code === "not_found"
+            ? "This request already expired or was answered elsewhere."
+            : "Could not deliver your answer — the tool was denied by timeout.",
+        );
+      }
+    },
+    [],
+  );
 
   const onStop = useCallback(async () => {
     try {
@@ -100,7 +124,10 @@ export function ChatColumn({ bootstrap }: { bootstrap: ChatBootstrap }) {
         aria-live="polite"
         className="flex-1 overflow-y-auto px-4 py-4"
       >
-        <MessageList view={view} />
+        <MessageList
+          view={view}
+          onAnswerPermission={(id, decision) => void onAnswerPermission(id, decision)}
+        />
       </main>
       <footer className="border-t border-border px-4 py-3">
         <Composer

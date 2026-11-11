@@ -8,9 +8,11 @@ import { providerHealth } from "@/lib/providers/provider-health";
  * installed and how they authenticate on this host, which is operator
  * information, not marketing. Clients cache nothing (`no-store`) because
  * `authed` changes as soon as the first session reports its init frame.
+ *
+ * No segment config: `cacheComponents` rejects `dynamic = "force-dynamic"` at
+ * build time; `requireActor` reads the cookie, which is a request-time API and
+ * already keeps this handler out of the prerender.
  */
-
-export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<Response> {
   const decision = await requireActor("user");

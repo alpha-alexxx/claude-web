@@ -65,6 +65,51 @@ describe("chatStateReducer", () => {
   });
 });
 
+describe("permission_answered", () => {
+  it("marks the matching card answered without touching the stream", () => {
+    let v = chatStateReducer(initialChatState(), {
+      type: "user_message",
+      text: "hi",
+    });
+    v = chatStateReducer(v, {
+      type: "turn_event",
+      event: {
+        type: "permission_request",
+        requestId: "req-1",
+        toolName: "Bash",
+        toolUseId: "tu-1",
+        input: { command: "ls" },
+        displayHint: "Bash(ls)",
+      },
+    });
+    v = chatStateReducer(v, {
+      type: "permission_answered",
+      requestId: "req-1",
+      decision: "allow_session",
+    });
+    const turn = v.turns[v.turns.length - 1];
+    if (turn.kind !== "assistant") throw new Error("expected assistant turn");
+    expect(turn.blocks).toMatchObject([
+      { kind: "permission", card: { status: "answered", answer: "allow_session" } },
+    ]);
+    expect(v.running).toBe(true);
+  });
+
+  it("is a no-op for an unknown request id", () => {
+    const v = chatStateReducer(initialChatState(), {
+      type: "user_message",
+      text: "hi",
+    });
+    expect(
+      chatStateReducer(v, {
+        type: "permission_answered",
+        requestId: "nope",
+        decision: "allow",
+      }),
+    ).toBe(v);
+  });
+});
+
 describe("chatBootstrapSchema", () => {
   it("passes through a well-formed bootstrap payload", () => {
     const payload = {

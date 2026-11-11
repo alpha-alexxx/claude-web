@@ -11,9 +11,11 @@ import { getAdapter } from "@/lib/providers/registry";
  *
  * `[id]` is the client conversation id; it is scoped by user before it
  * reaches the pool, exactly as in POST /api/chat.
+ *
+ * No segment config: `cacheComponents` rejects `dynamic = "force-dynamic"` at
+ * build time; this handler reads a live in-memory pool, so it can never be
+ * prerendered regardless.
  */
-
-export const dynamic = "force-dynamic";
 
 export async function POST(
   req: Request,

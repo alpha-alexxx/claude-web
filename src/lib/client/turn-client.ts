@@ -1,5 +1,5 @@
 import { SseFrameParser } from "./sse";
-import { turnErrorEvent } from "./chat-view";
+import { turnErrorEvent, type PermissionDecision } from "./chat-view";
 import type { TurnEvent } from "@/lib/providers/types";
 
 export interface RunTurnOptions {
@@ -93,6 +93,58 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
   // The server always emits turn_end; reaching here means it died silently.
   if (!sawEnd) opts.onEvent(turnErrorEvent("stream ended before the turn did"));
+}
+
+export interface AnswerPermissionOptions {
+  requestId: string;
+  decision: PermissionDecision;
+  /** Injectable fetch (tests script this); defaults to the global. */
+  fetch?: typeof fetch;
+}
+
+export interface AnswerPermissionResult {
+  ok: boolean;
+  /** Machine-readable failure: the route's error code, or "network". */
+  code?: string;
+  /** HTTP status, 0 for a network/transport failure. */
+  status: number;
+}
+
+/**
+ * Answer one permission card. Never throws: the caller's UI already flipped
+ * the card optimistically, and a failed answer must surface as a toast, not
+ * an unhandled rejection. A 404 is the interesting case — the prompt was
+ * already answered (another tab) or its session closed — so it is reported
+ * as `not_found` rather than as a generic failure.
+ */
+export async function answerPermission(
+  opts: AnswerPermissionOptions,
+): Promise<AnswerPermissionResult> {
+  const doFetch = opts.fetch ?? globalThis.fetch;
+  let response: Response;
+  try {
+    response = await doFetch(
+      `/api/permissions/${encodeURIComponent(opts.requestId)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: opts.decision }),
+      },
+    );
+  } catch {
+    return { ok: false, code: "network", status: 0 };
+  }
+
+  if (response.ok) return { ok: true, status: response.status };
+
+  let code = "unknown";
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    if (typeof body.error === "string") code = body.error;
+  } catch {
+    // An unreadable body still leaves the status as the identifying fact.
+  }
+  return { ok: false, code, status: response.status };
 }
 
 // -- internals ---------------------------------------------------------------

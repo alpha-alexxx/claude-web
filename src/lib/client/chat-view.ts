@@ -33,6 +33,9 @@ export interface ToolCallView {
   parentToolUseId: string | null;
 }
 
+/** Mirrors the answer route's zod enum — one vocabulary on both sides. */
+export type PermissionDecision = "allow" | "deny" | "allow_session";
+
 export interface PermissionCardView {
   requestId: string;
   toolName: string;
@@ -40,7 +43,7 @@ export interface PermissionCardView {
   input: Record<string, unknown>;
   displayHint: string | null;
   status: "pending" | "answered";
-  answer: "allow" | "deny" | null;
+  answer: PermissionDecision | null;
 }
 
 export interface TurnEndView {
@@ -127,6 +130,37 @@ export function reduceTurnEvent(view: TurnView, event: TurnEvent): TurnView {
   const newTurns = turns.slice();
   newTurns[hasOpen ? turns.length - 1 : turns.length] = applyBlock(turn, event);
   return { turns: newTurns, running: true, started: true };
+}
+
+/**
+ * Mark one pending card answered. Purely local: the transport POSTs the
+ * answer separately, and this is what stops the card from looking answerable
+ * while the request is in flight. Returns the view unchanged when the id is
+ * unknown or the card was already answered — a double click, or a frame that
+ * raced the click, must not resurrect a card.
+ *
+ * The turn keeps running: an answered card does not end anything.
+ */
+export function answerPermissionCard(
+  view: TurnView,
+  requestId: string,
+  decision: PermissionDecision,
+): TurnView {
+  let found = false;
+  const turns = view.turns.map((turn) => {
+    if (turn.kind !== "assistant") return turn;
+    let turnChanged = false;
+    const blocks = turn.blocks.map((block): AssistantBlock => {
+      if (block.kind !== "permission") return block;
+      const { card } = block;
+      if (card.requestId !== requestId || card.status === "answered") return block;
+      turnChanged = true;
+      found = true;
+      return { kind: "permission", card: { ...card, status: "answered", answer: decision } };
+    });
+    return turnChanged ? { ...turn, blocks } : turn;
+  });
+  return found ? { ...view, turns } : view;
 }
 
 // -- internals ---------------------------------------------------------------

@@ -95,6 +95,12 @@ export class ClaudeAdapter implements ProviderAdapter {
       model,
       resumeSessionId: opts.resumeSessionId ?? null,
       onPermission: opts.onPermission,
+      // Both are session-lifetime hooks: the pool binds them at CREATION and
+      // never re-reads them, so they must not vary per turn. Dropping them
+      // fails closed in a way the UI cannot show — every tool denies and
+      // "allow for session" never takes effect.
+      isToolAllowed: opts.isToolAllowed,
+      onSessionClosed: opts.onSessionClosed,
     };
     const session = this.pool.get(opts.conversationId, getOpts);
     // On reuse, spawn options are dead: pool.get() ignores them for an

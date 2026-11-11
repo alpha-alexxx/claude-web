@@ -123,4 +123,24 @@ describe("claude adapter", () => {
     await s.setModel?.("sonnet");
     expect(session.setModel).toHaveBeenCalledWith("sonnet");
   });
+
+  it("forwards the permission hooks into the pool's creation options", async () => {
+    // The pool implements the gate; the adapter's only job is not to drop the
+    // hooks on the floor. Dropping them fails CLOSED (every tool denied), which
+    // is invisible in the UI — so the forwarding is asserted explicitly.
+    const { pool, getCalls } = makeFakePool({ live: false });
+    const adapter = new ClaudeAdapter(pool);
+    const onPermission = async () => ({ behavior: "allow" as const });
+    const isToolAllowed = () => true;
+    const onSessionClosed = () => {};
+    await adapter.startsSession({
+      ...BASE_OPTS,
+      onPermission,
+      isToolAllowed,
+      onSessionClosed,
+    });
+    expect(getCalls[0].onPermission).toBe(onPermission);
+    expect(getCalls[0].isToolAllowed).toBe(isToolAllowed);
+    expect(getCalls[0].onSessionClosed).toBe(onSessionClosed);
+  });
 });

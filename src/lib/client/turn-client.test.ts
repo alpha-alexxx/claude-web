@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { runTurn } from "./turn-client";
+import { answerPermission, runTurn } from "./turn-client";
 import type { TurnEvent } from "@/lib/providers/types";
 
 /**
@@ -143,5 +143,43 @@ describe("runTurn", () => {
       expect(end.reason).toBe("error");
       expect(end.error).toMatch(/network|fetch|request/i);
     }
+  });
+});
+
+describe("answerPermission", () => {
+  it("POSTs the decision to the request's route", async () => {
+    const f = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
+    await expect(
+      answerPermission({ requestId: "req-1", decision: "allow", fetch: f }),
+    ).resolves.toMatchObject({ ok: true, status: 200 });
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/permissions/req-1");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ decision: "allow" });
+  });
+
+  it("encodes the request id into the path (it is a URL segment)", async () => {
+    const f = vi.fn(async () => new Response("{}", { status: 200 }));
+    await answerPermission({ requestId: "a/b c", decision: "deny", fetch: f });
+    const [url] = f.mock.calls[0] as unknown as [string];
+    expect(url).toBe("/api/permissions/a%2Fb%20c");
+  });
+
+  it("reports a 404 as not_found (already answered or expired)", async () => {
+    const f = vi.fn(
+      async () => new Response('{"error":"not_found"}', { status: 404 }),
+    );
+    await expect(
+      answerPermission({ requestId: "req-1", decision: "allow", fetch: f }),
+    ).resolves.toEqual({ ok: false, code: "not_found", status: 404 });
+  });
+
+  it("reports a network failure instead of throwing", async () => {
+    const f = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    await expect(
+      answerPermission({ requestId: "req-1", decision: "allow", fetch: f }),
+    ).resolves.toMatchObject({ ok: false, status: 0 });
   });
 });

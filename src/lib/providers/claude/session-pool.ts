@@ -11,7 +11,7 @@ import {
   toolSummary,
   type TurnState,
 } from "./message-mapper";
-import type { PermissionAnswer, TurnEvent } from "../types";
+import type { PermissionHandler, TurnEvent } from "../types";
 
 /**
  * One `query()` per active conversation, with an AsyncIterable prompt — the
@@ -36,10 +36,14 @@ export interface PoolGetOpts {
   /** CLI session id to resume (reopening a conversation). */
   resumeSessionId?: string | null;
   /** Interactive Allow/Deny gate; null/absent = deny (fail closed). */
-  onPermission?: (
-    toolName: string,
-    input: Record<string, unknown>,
-  ) => Promise<PermissionAnswer | null>;
+  onPermission?: PermissionHandler;
+  /**
+   * Pre-approved tools for this conversation (the broker's allowlist). A hit
+   * skips the card AND the handler — emitted before canUseTool is entered.
+   */
+  isToolAllowed?: (toolName: string) => boolean;
+  /** Session going away (eviction, close): deny pending prompts, forget allowlist. */
+  onSessionClosed?: () => void;
 }
 
 export interface PoolSession {
@@ -216,6 +220,14 @@ class PoolSessionImpl implements PoolSession {
     this.closed = true;
     this.running = false;
     this.listeners.clear();
+    // Notify the owner BEFORE the process dies: pending permission prompts
+    // must be denied and the session's allowlist forgotten, or a card whose
+    // turn is gone would stay answerable until its timeout.
+    try {
+      this.getOpts.onSessionClosed?.();
+    } catch {
+      // teardown must complete even if the callback misbehaves
+    }
     this.channel.end();
     this.onDetached();
     try {
@@ -300,12 +312,17 @@ class PoolSessionImpl implements PoolSession {
   // -- interactive permissions ------------------------------------------------
 
   /**
-   * canUseTool (fail closed): emit a permission_request card event, then
-   * await the conversation's answer. No handler / null / throw → deny.
+   * canUseTool (fail closed): a tool pre-approved for the session is allowed
+   * silently; everything else emits a permission_request card and awaits the
+   * conversation's answer. No handler / null / throw → deny.
    */
   private readonly handleCanUseTool: CanUseTool = async (toolName, input, opts) => {
     const requestId = typeof opts.requestId === "string" ? opts.requestId : "";
     const toolUseId = opts.toolUseID ?? "";
+    if (this.getOpts.isToolAllowed?.(toolName)) {
+      // No card, no round trip: "Allow for session" already answered this.
+      return { behavior: "allow" as const, updatedInput: input, toolUseID: toolUseId };
+    }
     this.emit({
       type: "permission_request",
       requestId,
@@ -315,7 +332,16 @@ class PoolSessionImpl implements PoolSession {
       displayHint: `${toolName}(${toolSummaryLabel(toolName, input)})`,
     });
     try {
-      const answer = (await this.getOpts.onPermission?.(toolName, input)) ?? null;
+      // The handler registers the request with the broker BEFORE the card can
+      // be clicked (emit above is synchronous; the click needs a round trip),
+      // so the requestId is always answerable by the time the browser has it.
+      const answer =
+        (await this.getOpts.onPermission?.({
+          requestId,
+          toolUseId,
+          toolName,
+          input,
+        })) ?? null;
       if (answer && answer.behavior === "allow") {
         return {
           behavior: "allow" as const,

@@ -73,6 +73,19 @@ const MIGRATIONS: { version: number; name: string; statements: string[] }[] = [
       )`,
     ],
   },
+  {
+    version: 2,
+    name: "one audit row per tool call",
+    statements: [
+      // tool_calls is written in two steps (pending at the ask, decision at
+      // the answer) plus a late result. All three address the same call by
+      // (conversation, tool_use_id), so the pair must be unique — otherwise a
+      // retried ask duplicates the row and the audit stops being a record of
+      // distinct calls. The upserts in tool-calls-repo rely on this index.
+      `CREATE UNIQUE INDEX idx_tool_calls_unique
+         ON tool_calls(conversation_id, tool_use_id)`,
+    ],
+  },
 ];
 
 export function migrate(db: DatabaseSync): void {

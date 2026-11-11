@@ -1,7 +1,9 @@
 import {
+  answerPermissionCard,
   initialView,
   pushUserMessage,
   reduceTurnEvent,
+  type PermissionDecision,
   type TurnView,
 } from "./chat-view";
 import type { TurnEvent } from "@/lib/providers/types";
@@ -10,10 +12,11 @@ import type { TurnEvent } from "@/lib/providers/types";
  * chatState: the reducer ChatColumn feeds to useReducer. It exists because
  * useReducer consumes ACTIONS and the view-model API is event-shaped:
  * pushUserMessage is view→view (it closes an open turn as a connection
- * error — a synthesizable state change), while reduceTurnEvent is
- * view×event→view. One discriminated union wraps both so React keeps a
- * single dispatch surface (dispatch is stable across renders; callbacks
- * that only dispatch don't re-subscribe or re-render children).
+ * error — a synthesizable state change), reduceTurnEvent is view×event→view,
+ * and answerPermissionCard is view×(requestId, decision)→view. One
+ * discriminated union wraps all three so React keeps a single dispatch
+ * surface (dispatch is stable across renders; callbacks that only dispatch
+ * don't re-subscribe or re-render children).
  *
  * /api/bootstrap payload shape lives here too (ChatBootstrap) — pure data,
  * shared by the page (server: fetches it) and ChatColumn (consumes it).
@@ -21,7 +24,8 @@ import type { TurnEvent } from "@/lib/providers/types";
 
 export type ChatAction =
   | { type: "user_message"; text: string }
-  | { type: "turn_event"; event: TurnEvent };
+  | { type: "turn_event"; event: TurnEvent }
+  | { type: "permission_answered"; requestId: string; decision: PermissionDecision };
 
 export function chatBootstrapSchema(raw: unknown): ChatBootstrap {
   const payload = raw as ChatBootstrap;
@@ -66,6 +70,8 @@ export function chatStateReducer(
       return pushUserMessage(view, action.text);
     case "turn_event":
       return reduceTurnEvent(view, action.event);
+    case "permission_answered":
+      return answerPermissionCard(view, action.requestId, action.decision);
   }
 }
 
