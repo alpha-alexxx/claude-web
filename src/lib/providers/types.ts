@@ -116,6 +116,13 @@ export interface ProviderAdapter {
 export interface ActiveSession {
   /** Send one user turn. Resolves when accepted, not when complete. */
   send(text: string): Promise<void>;
+  /**
+   * Switch the model for subsequent turns ("auto"/undefined = CLI default).
+   * Only exists where the CLI's session is live and mutable (streaming
+   * input mode); absent = mid-session switches unsupported (send the
+   * choice with the next turn instead).
+   */
+  setModel?(model?: string): Promise<void>;
   /** Stop the in-flight turn (Stop button). */
   interrupt(): Promise<void>;
   /** Stream-subscribe raw turn events. */

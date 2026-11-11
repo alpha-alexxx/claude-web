@@ -3,6 +3,7 @@ import { Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { shadcn } from "@clerk/ui/themes";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 import { SIGN_IN_URL, SIGN_UP_URL } from "@/lib/auth/routes";
 import "./globals.css";
 
@@ -31,7 +32,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           signInUrl={SIGN_IN_URL}
           signUpUrl={SIGN_UP_URL}
         >
-          <ThemeProvider>{children}</ThemeProvider>
+          <ThemeProvider>
+            {children}
+            {/* Mounted once, at the root: ChatColumn's toast.error calls are
+                no-ops if no <Toaster /> exists anywhere in the tree. */}
+            <Toaster />
+          </ThemeProvider>
         </ClerkProvider>
       </body>
     </html>

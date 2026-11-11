@@ -8,7 +8,11 @@ import type {
   SessionOpts,
 } from "../types";
 import { getEnv } from "../../env";
-import { ClaudeSessionPool, type PoolGetOpts } from "./session-pool";
+import {
+  ClaudeSessionPool,
+  type PoolGetOpts,
+  type PoolSession,
+} from "./session-pool";
 
 /**
  * Claude adapter — the v1-complete implementation of the provider seam.
@@ -31,6 +35,31 @@ const DEFAULT_MODELS: ModelInfo[] = [
   { id: "haiku", label: "Claude Haiku (fastest)" },
   { id: "auto", label: "Auto (CLI default)" },
 ];
+
+/**
+ * "auto" is the UI's "no override" choice (DEFAULT_MODEL=auto), not a model id
+ * the CLI knows. Translate it once, here, at the seam.
+ */
+function normalizeModel(model: string | null): string | null {
+  if (!model) return null;
+  return model === "auto" ? null : model;
+}
+
+/** Spawn opts are dead when the pool reuses a session — apply via setModel. */
+function applyModelOnReuse(
+  session: PoolSession,
+  normalized: string | null,
+  requested: string | null,
+): void {
+  // Only apply when the caller actually asked for a model this turn. A null
+  // request means "keep whatever the session is already using" — clearing it
+  // would stomp a model picked mid-conversation via the picker.
+  if (requested === null) return;
+  void session.setModel(normalized ?? undefined).catch(() => {
+    // setModel is best-effort on reuse: the pool session may reject it when
+    // a turn is in flight (CLI answers with an error result frame).
+  });
+}
 
 export class ClaudeAdapter implements ProviderAdapter {
   readonly id = "claude" as const;
@@ -60,15 +89,20 @@ export class ClaudeAdapter implements ProviderAdapter {
   }
 
   async startsSession(opts: SessionOpts): Promise<ActiveSession> {
+    const model = normalizeModel(opts.model);
     const getOpts: PoolGetOpts = {
       cwd: opts.cwd,
-      model: opts.model,
+      model,
       resumeSessionId: opts.resumeSessionId ?? null,
       onPermission: opts.onPermission,
     };
     const session = this.pool.get(opts.conversationId, getOpts);
+    // On reuse, spawn options are dead: pool.get() ignores them for an
+    // existing session. setModel is what makes the requested model real.
+    applyModelOnReuse(session, model, opts.model);
     return {
       send: (text) => session.send(text),
+      setModel: (model?: string) => session.setModel(model),
       interrupt: () => session.interrupt(),
       onEvent: (cb) => session.onEvent(cb),
       offEvent: (cb) => session.offEvent(cb),
@@ -87,6 +121,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     return s
       ? {
           send: (text) => s.send(text),
+          setModel: (model?: string) => s.setModel(model),
           interrupt: () => s.interrupt(),
           onEvent: (cb) => s.onEvent(cb),
           offEvent: (cb) => s.offEvent(cb),
