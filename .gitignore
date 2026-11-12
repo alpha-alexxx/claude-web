@@ -35,6 +35,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the documented template: it carries no values, and a checkout
+# without it has no record of which variables exist.
+!.env.example
 
 # vercel
 .vercel

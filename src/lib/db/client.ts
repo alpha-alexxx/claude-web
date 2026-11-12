@@ -13,7 +13,7 @@ let _db: DatabaseSync | null = null;
 export function getDb(databasePath?: string): DatabaseSync {
   if (_db && !databasePath) return _db;
   const p = databasePath ?? process.env.DATABASE_PATH ?? "./data/claude-web.db";
-  mkdirSync(path.dirname(p), { recursive: true });
+  mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(p);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");

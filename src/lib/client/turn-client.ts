@@ -9,12 +9,18 @@ export interface RunTurnOptions {
   text: string;
   /** Override model for this turn; omit to keep the session's current one. */
   model?: string;
-  /** CLI session to resume (a reopened conversation's cli_session_id). */
-  resumeSessionId?: string;
   /** Injectable fetch (tests script this); defaults to the global. */
   fetch?: typeof fetch;
   /** Called with each parsed event, in arrival order. */
   onEvent: (event: TurnEvent) => void;
+  /**
+   * Called once the server has ACCEPTED the turn (2xx with a body), before the
+   * first event. This is the earliest moment a conversation row is guaranteed
+   * to exist server-side, so it is what a caller should key a URL change on —
+   * `turns.length > 0` only becomes true when the first event lands, which for
+   * a slow first token leaves a sent message sitting on the wrong URL.
+   */
+  onAccepted?: () => void;
 }
 
 /**
@@ -37,9 +43,6 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     text: opts.text,
   };
   if (opts.model !== undefined) body.model = opts.model;
-  if (opts.resumeSessionId !== undefined) {
-    body.resumeSessionId = opts.resumeSessionId;
-  }
 
   let response: Response;
   try {
@@ -62,6 +65,11 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     opts.onEvent(turnErrorEvent("response had no body to stream"));
     return;
   }
+
+  // Acceptance is reported before the first read: the route has committed the
+  // row by the time it starts the stream, and the caller's URL should not wait
+  // for a token.
+  opts.onAccepted?.();
 
   let sawEnd = false;
   const emit = (event: TurnEvent) => {

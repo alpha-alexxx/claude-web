@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { requireActor } from "@/lib/auth/current-actor";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/auth/rate-limit";
-import { sameOrigin } from "@/lib/auth/request-guards";
+import { BODY_CAPS, bodyTooLarge, sameOrigin } from "@/lib/auth/request-guards";
 import { getPermissionBroker } from "@/lib/providers/claude/broker";
 
 /**
@@ -23,7 +23,6 @@ const BodySchema = z.object({
   decision: z.enum(["allow", "deny", "allow_session"]),
 });
 
-const MAX_BODY_BYTES = 4_096;
 
 function json(status: number, body: Record<string, unknown>, headers?: Record<string, string>) {
   return Response.json(body, { status, headers });
@@ -52,8 +51,7 @@ export async function POST(
     );
   }
 
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > MAX_BODY_BYTES) return json(413, { error: "body_too_large" });
+  if (bodyTooLarge(req, BODY_CAPS.answer)) return json(413, { error: "body_too_large" });
 
   let raw: unknown;
   try {

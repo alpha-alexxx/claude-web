@@ -39,8 +39,14 @@ export interface TurnSsePipe {
    * Push the user's prompt. Resolves when the session accepted it (not when
    * the turn completes). Attaches the listener first, then sends, and
    * converts a send rejection into an error turn_end on the stream.
+   *
+   * Resolves `null` when the session accepted the prompt, or the failure
+   * message when it did not. The caller needs that bit: the synthetic
+   * turn_end above reaches the browser but NOT the session's other
+   * listeners, so a transcript mirror has to close its turn itself — and the
+   * replay should say why the turn died.
    */
-  send(text: string): Promise<void>;
+  send(text: string): Promise<string | null>;
 }
 
 const encoder = new TextEncoder();
@@ -140,9 +146,10 @@ export function createTurnSsePipe(
   return {
     stream,
     async send(text) {
-      if (closed) return;
+      if (closed) return "stream already closed";
       try {
         await session.send(text);
+        return null;
       } catch (err) {
         // Capacity rejection / dead CLI: end the stream with a real
         // turn_end so the client's turn lifecycle closes cleanly.
@@ -155,6 +162,7 @@ export function createTurnSsePipe(
           tokens: { input: null, output: null },
           error: err instanceof Error ? err.message : String(err),
         });
+        return err instanceof Error ? err.message : String(err);
       }
     },
   };

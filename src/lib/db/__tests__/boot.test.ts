@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { getBootDb, resetBootDbForTest } from "../boot";
 import { resetDbForTest } from "../client";
 import { countUsers } from "../users-repo";
+import { resetEnvForTest } from "@/lib/env";
 
 let dir: string;
 
@@ -16,6 +17,7 @@ beforeEach(() => {
   process.env.CLERK_SECRET_KEY = "sk_test_dummy";
   process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_test_dummy";
   process.env.DATABASE_PATH = path.join(dir, "app.db");
+  resetEnvForTest();
   resetDbForTest();
   resetBootDbForTest();
 });
@@ -47,5 +49,48 @@ describe("boot", () => {
     expect(second).not.toBe(first);
     // The new connection is migrated too, not a bare file.
     expect(countUsers(second)).toBe(0);
+  });
+
+  it("creates the data directory private and the database file owner-only", () => {
+    // The data directory holds the SQLite database (transcripts, audit rows),
+    // integrations.env and render.key. SECURITY.md states 0700/0600, and a
+    // world-readable transcript is a leak the app would otherwise never
+    // report — so the mode is pinned here, after boot has created both.
+    // A nested path, so the directory under test is one this app created
+    // rather than mkdtemp's own (already private) temp dir.
+    const dataDir = path.join(dir, "data");
+    process.env.DATABASE_PATH = path.join(dataDir, "app.db");
+    // getEnv() caches the parse, so the path change needs a reset too.
+    resetEnvForTest();
+    resetBootDbForTest();
+
+    getBootDb();
+
+    expect(statSync(dataDir).mode & 0o777).toBe(0o700);
+    expect(statSync(process.env.DATABASE_PATH).mode & 0o777).toBe(0o600);
+  });
+
+  it("also locks the WAL sidecars down to 0600 on the next boot", () => {
+    // WAL mode is on, so recent pages live in `-wal` until a checkpoint: an
+    // owner-only database with a world-readable `-wal` leaks what was just
+    // written. The sidecar appears on the first write, so this test writes a
+    // row and re-boots to prove the chmod covers it.
+    const dataDir = path.join(dir, "wal");
+    process.env.DATABASE_PATH = path.join(dataDir, "app.db");
+    resetEnvForTest();
+    resetBootDbForTest();
+
+    const db = getBootDb();
+    db.exec("CREATE TABLE probe (v TEXT)");
+    db.exec("INSERT INTO probe VALUES ('written-into-the-wal')");
+
+    resetBootDbForTest();
+    getBootDb();
+
+    for (const suffix of ["-wal", "-shm"]) {
+      const sidecar = `${process.env.DATABASE_PATH}${suffix}`;
+      if (!existsSync(sidecar)) continue; // checkpointed away is fine
+      expect(statSync(sidecar).mode & 0o777).toBe(0o600);
+    }
   });
 });

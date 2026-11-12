@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { requireActor } from "@/lib/auth/current-actor";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/auth/rate-limit";
-import { sameOrigin } from "@/lib/auth/request-guards";
+import { sameOrigin, bodyTooLarge } from "@/lib/auth/request-guards";
 import { getAdapter } from "@/lib/providers/registry";
-import type { ProviderId } from "@/lib/providers/types";
+import { getBootDb } from "@/lib/db/boot";
+import { conversationIdFor, findConversation } from "@/lib/db/conversations-repo";
 
 /**
  * POST /api/chat/[id]/model — switch the model of a LIVE session.
@@ -13,6 +14,11 @@ import type { ProviderId } from "@/lib/providers/types";
  * request instead (spawn options are only meaningful then), so 404 here is
  * a no-op for the UI, not an error to surface.
  *
+ * The provider comes from the caller's OWN row, and `provider` in the body is
+ * optional: a body default would silently target the wrong adapter whenever a
+ * stale tab posts to a conversation that has since been written by another
+ * provider. A body value that disagrees with the row is a 409, not a guess.
+ *
  * No segment config: under `cacheComponents`, `dynamic = "force-dynamic"` is
  * rejected at build time — the request-time APIs this handler already calls
  * keep it out of the prerender.
@@ -21,7 +27,8 @@ import type { ProviderId } from "@/lib/providers/types";
 const BodySchema = z.object({
   /** "auto" = CLI default (clears any override). */
   model: z.string().min(1).max(128),
-  provider: z.enum(["claude", "codex", "opencode", "qoder"]).default("claude"),
+  /** Optional cross-check; the row is authoritative when present. */
+  provider: z.enum(["claude", "codex", "opencode", "qoder"]).optional(),
 });
 
 function json(status: number, error: string) {
@@ -50,6 +57,8 @@ export async function POST(
     );
   }
 
+  if (bodyTooLarge(req)) return json(413, "body_too_large");
+
   let raw: unknown;
   try {
     raw = await req.json();
@@ -60,8 +69,19 @@ export async function POST(
   if (!parsed.success) return json(400, "invalid_body");
 
   const { id } = await ctx.params;
-  const adapter = getAdapter(parsed.data.provider as ProviderId);
-  const session = adapter?.liveSession?.(`${decision.user.id}:${id}`) ?? null;
+  const row = findConversation(
+    getBootDb(),
+    conversationIdFor(String(decision.user.id), id),
+  );
+  if (!row || row.userId !== String(decision.user.id)) {
+    return json(404, "no_live_session");
+  }
+  if (parsed.data.provider && parsed.data.provider !== row.provider) {
+    return json(409, "provider_mismatch");
+  }
+
+  const adapter = getAdapter(row.provider);
+  const session = adapter?.liveSession?.(row.id) ?? null;
   if (!session) return json(404, "no_live_session");
 
   try {

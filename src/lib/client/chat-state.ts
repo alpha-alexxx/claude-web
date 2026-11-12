@@ -19,25 +19,16 @@ import type { TurnEvent } from "@/lib/providers/types";
  * don't re-subscribe or re-render children).
  *
  * /api/bootstrap payload shape lives here too (ChatBootstrap) — pure data,
- * shared by the page (server: fetches it) and ChatColumn (consumes it).
+ * shared by the pages (server: loads it) and ChatColumn (consumes it). There
+ * is deliberately no runtime validator: the only producer is
+ * `loadChatBootstrap` in this repo, which is typed, so a cast-and-check
+ * schema would validate a payload the browser never fetches.
  */
 
 export type ChatAction =
   | { type: "user_message"; text: string }
   | { type: "turn_event"; event: TurnEvent }
   | { type: "permission_answered"; requestId: string; decision: PermissionDecision };
-
-export function chatBootstrapSchema(raw: unknown): ChatBootstrap {
-  const payload = raw as ChatBootstrap;
-  if (
-    !Array.isArray(payload.roots) ||
-    typeof payload.defaultModel !== "string" ||
-    !Array.isArray(payload.providers)
-  ) {
-    throw new Error("bootstrap payload has an unexpected shape");
-  }
-  return payload;
-}
 
 export interface ChatBootstrapProvider {
   id: string;

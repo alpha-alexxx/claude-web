@@ -16,6 +16,23 @@ import { getClaudeAdapter } from "./claude/adapter";
 
 const KNOWN: readonly ProviderId[] = ["claude", "codex", "opencode", "qoder"];
 
+/**
+ * Adapters that exist in this build. The others are listed by Integrations
+ * (so an operator can install the CLI ahead of the adapter) but never
+ * activated — a UI that offers a backend it cannot drive is worse than one
+ * that says "not available yet".
+ */
+const IMPLEMENTED: readonly ProviderId[] = ["claude"];
+
+export function isImplemented(id: ProviderId): boolean {
+  return IMPLEMENTED.includes(id);
+}
+
+/** Whether ENABLED_PROVIDERS admits this provider at all. */
+export function isEnabled(id: ProviderId): boolean {
+  return getEnv().ENABLED_PROVIDERS.includes(id);
+}
+
 /** Returns the adapter for an enabled, implemented provider, else null. */
 export function getAdapter(id: ProviderId | string): ProviderAdapter | null {
   const enabled = getEnv().ENABLED_PROVIDERS;

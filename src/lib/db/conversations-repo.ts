@@ -126,3 +126,89 @@ export function findConversation(
   const row = db.prepare(`${SELECT} WHERE id = ?`).get(id);
   return row ? toRow(row as unknown as RawRow) : null;
 }
+
+/**
+ * Sidebar listing: one user's conversations, most recent activity first.
+ *
+ * Rows with no messages are hidden even though the chat route creates them on
+ * mount — /chat/[id] needs a real row before the first turn so the URL, the
+ * audit FK and the resume target all exist. An empty row is a conversation
+ * the user never used, and listing it would fill the sidebar with noise. The
+ * EXISTS subquery keeps this a single statement (no N+1 over message counts).
+ */
+export function listConversations(
+  db: DatabaseSync,
+  userId: string,
+  limit = 100,
+): ConversationRow[] {
+  const rows = db
+    .prepare(
+      `${SELECT} WHERE user_id = ? AND EXISTS (SELECT 1 FROM messages m ` +
+        `WHERE m.conversation_id = conversations.id) ` +
+        `ORDER BY updated_at DESC, rowid DESC LIMIT ?`,
+    )
+    .all(userId, limit);
+  return rows.map((r) => toRow(r as unknown as RawRow));
+}
+
+/**
+ * Delete one conversation. Owner-guarded: the WHERE clause carries `user_id`,
+ * so a wrong id deletes nothing and reports false rather than acting on
+ * someone else's row. Messages and tool_calls cascade (FKs are ON).
+ */
+export function deleteConversation(
+  db: DatabaseSync,
+  id: string,
+  userId: string,
+): boolean {
+  const result = db
+    .prepare("DELETE FROM conversations WHERE id = ? AND user_id = ?")
+    .run(id, userId);
+  return Number(result.changes) > 0;
+}
+
+/** Rename, owner-guarded. Empty/whitespace titles are rejected by the route. */
+export function renameConversation(
+  db: DatabaseSync,
+  id: string,
+  userId: string,
+  title: string,
+): boolean {
+  const result = db
+    .prepare(
+      "UPDATE conversations SET title = ?, " +
+        "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND user_id = ?",
+    )
+    .run(title, id, userId);
+  return Number(result.changes) > 0;
+}
+
+/**
+ * Set the title if it is still empty. The first user message is the title, but
+ * a later turn must never overwrite a title the user chose (or an earlier
+ * derivation) — hence the `title IS NULL` predicate rather than a blind write.
+ */
+export function ensureTitle(db: DatabaseSync, id: string, title: string): void {
+  db.prepare(
+    "UPDATE conversations SET title = ? WHERE id = ? AND (title IS NULL OR title = '')",
+  ).run(title, id);
+}
+
+/**
+ * Persist the CLI's own session id so a reopened conversation can `resume`.
+ *
+ * Written at session creation and again whenever a frame reveals it (the init
+ * frame is the first place it appears). An empty string is a no-op: a missing
+ * value must never clobber a good one.
+ */
+export function setCliSessionId(
+  db: DatabaseSync,
+  id: string,
+  cliSessionId: string,
+): void {
+  if (!cliSessionId) return;
+  db.prepare("UPDATE conversations SET cli_session_id = ? WHERE id = ?").run(
+    cliSessionId,
+    id,
+  );
+}

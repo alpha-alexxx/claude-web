@@ -10,11 +10,13 @@ import { getBootDb, resetBootDbForTest } from "@/lib/db/boot";
 import { resetDbForTest } from "@/lib/db/client";
 import { listToolCalls } from "@/lib/db/tool-calls-repo";
 import { findConversation } from "@/lib/db/conversations-repo";
+import { listMessages } from "@/lib/db/messages-repo";
 import {
   getPermissionBroker,
   resetPermissionBrokerForTest,
 } from "@/lib/providers/claude/broker";
 import { resetSessionBindingForTest } from "@/lib/providers/claude/binding";
+import { resetSessionTranscriptForTest } from "@/lib/chat/session-transcript";
 import { useDummyEnv, clearDummyEnv } from "@/test/dummy-env";
 import { POST } from "../route";
 
@@ -36,8 +38,10 @@ vi.mock("@/lib/providers/registry", () => {
   const listeners = new Set<(e: TurnEvent) => void>();
   const sent: string[] = [];
   const starts: Record<string, unknown>[] = [];
+  const state: { sendError: Error | null } = { sendError: null };
   const session = {
     send: async (text: string) => {
+      if (state.sendError) throw state.sendError;
       sent.push(text);
       for (const cb of [...listeners]) cb({ type: "text_delta", text });
       for (const cb of [...listeners]) {
@@ -53,6 +57,7 @@ vi.mock("@/lib/providers/registry", () => {
       }
     },
     interrupt: async () => {},
+    cliSessionId: () => "cli-sess-1",
     onEvent: (cb: (e: TurnEvent) => void) => listeners.add(cb),
     offEvent: (cb: (e: TurnEvent) => void) => listeners.delete(cb),
     close: async () => {},
@@ -83,6 +88,7 @@ vi.mock("@/lib/providers/registry", () => {
       sent,
       starts,
       adapter,
+      state,
       emit: (event: TurnEvent) => {
         for (const cb of [...listeners]) cb(event);
       },
@@ -96,6 +102,7 @@ const fake = vi.mocked(registry) as unknown as {
     starts: Record<string, unknown>[];
     adapter: { startsSession: ReturnType<typeof vi.fn> };
     emit: (event: TurnEvent) => void;
+    state: { sendError: Error | null };
   };
 };
 
@@ -148,10 +155,12 @@ beforeEach(() => {
     .run("user_1", "user_1@example.test");
   resetPermissionBrokerForTest();
   resetSessionBindingForTest();
+  resetSessionTranscriptForTest();
   vi.mocked(requireActor).mockResolvedValue(AUTH_OK);
   resetRateLimits();
   fake.__test.sent.length = 0;
   fake.__test.starts.length = 0;
+  fake.__test.state.sendError = null;
 });
 
 afterEach(() => {
@@ -245,6 +254,72 @@ describe("POST /api/chat", () => {
     const res = await post({ ...goodBody, conversationId: "c-11" });
     expect(res.status).toBe(429);
     expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+  });
+});
+
+describe("POST /api/chat — transcript persistence", () => {
+  it("persists the user prompt and the assistant turn", async () => {
+    await post(goodBody);
+    const rows = listMessages(getBootDb(), "user_1:c1");
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    expect(rows[0].content).toEqual({ text: "hello" });
+    const assistant = rows[1].content as {
+      blocks: Array<{ kind: string; text?: string }>;
+      end: { reason: string };
+    };
+    expect(assistant.blocks).toEqual([{ kind: "text", text: "hello" }]);
+    expect(assistant.end.reason).toBe("done");
+  });
+
+  it("titles the conversation from the first user message, once", async () => {
+    await post(goodBody);
+    expect(findConversation(getBootDb(), "user_1:c1")?.title).toBe("hello");
+    await post({ ...goodBody, text: "a completely different second prompt" });
+    expect(findConversation(getBootDb(), "user_1:c1")?.title).toBe("hello");
+  });
+
+  it("persists the CLI session id as the resume target", async () => {
+    await post(goodBody);
+    expect(findConversation(getBootDb(), "user_1:c1")?.cliSessionId).toBe("cli-sess-1");
+  });
+
+  it("keeps the user row and closes the turn when the send is rejected", async () => {
+    fake.__test.state.sendError = new Error("CLI died");
+    await post(goodBody);
+    fake.__test.state.sendError = null;
+    // The rejection closes the mirror on a microtask after the stream ends
+    // (the route must not hold the response until the CLI answers), so give
+    // that continuation a turn to run.
+    await new Promise((r) => setTimeout(r, 0));
+    const rows = listMessages(getBootDb(), "user_1:c1");
+    // The prompt survives; the assistant turn is stored with the failure.
+    expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
+    const assistant = rows[1].content as { end: { reason: string } };
+    expect(assistant.end.reason).toBe("error");
+  });
+
+  it("resumes from the stored CLI session id, never from the request body", async () => {
+    // A client-supplied resume id is ignored: attaching a conversation to an
+    // arbitrary CLI session would let a browser name someone else's run.
+    await post({ ...goodBody, resumeSessionId: "attacker-chosen" });
+    expect(fake.__test.starts[0].resumeSessionId).toBeNull();
+
+    // The server's own column is what a later turn resumes from.
+    fake.__test.starts.length = 0;
+    await post({ ...goodBody, text: "second" });
+    expect(fake.__test.starts[0].resumeSessionId).toBe("cli-sess-1");
+  });
+
+  it("does not duplicate rows when the same conversation is used again", async () => {
+    await post(goodBody);
+    await post({ ...goodBody, text: "second" });
+    const rows = listMessages(getBootDb(), "user_1:c1");
+    expect(rows.map((r) => r.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
   });
 });
 

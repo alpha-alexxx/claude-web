@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { requireActor } from "@/lib/auth/current-actor";
 import { checkRateLimit, RATE_LIMITS } from "@/lib/auth/rate-limit";
-import { sameOrigin } from "@/lib/auth/request-guards";
+import { BODY_CAPS, bodyTooLarge, sameOrigin } from "@/lib/auth/request-guards";
 import { getEnv } from "@/lib/env";
 import { getAdapter } from "@/lib/providers/registry";
 import { createTurnSsePipe } from "@/lib/providers/claude/sse-pipe";
@@ -12,7 +12,17 @@ import { getBootDb } from "@/lib/db/boot";
 import {
   conversationIdFor,
   ensureConversation,
+  ensureTitle,
+  findConversation,
+  setCliSessionId,
 } from "@/lib/db/conversations-repo";
+import { appendMessage } from "@/lib/db/messages-repo";
+import { deriveTitle } from "@/lib/chat/transcript";
+import { createDbSink } from "@/lib/chat/recorder";
+import {
+  attachSessionTranscript,
+  captureCliSessionId,
+} from "@/lib/chat/session-transcript";
 import { resolveWorkspacePath } from "@/lib/workspace";
 
 /**
@@ -44,11 +54,8 @@ const BodySchema = z.object({
   cwd: z.string().min(1).max(4096),
   text: z.string().min(1).max(200_000),
   model: z.string().min(1).max(128).optional(),
-  /** Resume target for a reopened conversation (CLI session id). */
-  resumeSessionId: z.string().min(1).max(128).optional(),
 });
 
-const MAX_BODY_BYTES = 1_000_000;
 
 function json(status: number, error: string, headers?: Record<string, string>) {
   return Response.json({ error }, { status, headers });
@@ -74,8 +81,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // Body cap before parsing — an oversized body should cost one header check.
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > MAX_BODY_BYTES) return json(413, "body_too_large");
+  if (bodyTooLarge(req, BODY_CAPS.general)) return json(413, "body_too_large");
 
   let raw: unknown;
   try {
@@ -98,8 +104,11 @@ export async function POST(req: Request): Promise<Response> {
   // Server-derived, user-scoped key: it is the pool key AND the conversations
   // PK. The row must exist before the first audit write (tool_calls → FK).
   const sessionKey = conversationIdFor(String(user.id), body.conversationId);
+  const db = getBootDb();
+  let existing;
   try {
-    ensureConversation(getBootDb(), {
+    existing = findConversation(db, sessionKey);
+    ensureConversation(db, {
       id: sessionKey,
       userId: String(user.id),
       provider: body.provider,
@@ -109,6 +118,13 @@ export async function POST(req: Request): Promise<Response> {
   } catch (err) {
     return json(503, err instanceof Error ? err.message : "database unavailable");
   }
+
+  // Resume target comes from OUR row, never from the request: the browser
+  // could otherwise name any CLI session id it liked. A row owned by another
+  // user is treated as absent (ensureConversation refuses to update it, and
+  // we must not resume into it either).
+  const resumeSessionId =
+    existing && existing.userId === String(user.id) ? existing.cliSessionId : null;
 
   // Session-lifetime hooks. The pool binds them at CREATION and never re-reads
   // them, so they may only depend on the session key — never on this turn's
@@ -127,7 +143,7 @@ export async function POST(req: Request): Promise<Response> {
       conversationId: sessionKey,
       cwd,
       model: body.model ?? null,
-      resumeSessionId: body.resumeSessionId ?? null,
+      resumeSessionId,
       onPermission: binding.onPermission,
       isToolAllowed: binding.isToolAllowed,
       onSessionClosed: binding.onSessionClosed,
@@ -141,12 +157,38 @@ export async function POST(req: Request): Promise<Response> {
   // after this turn's stream closed. attach() is idempotent per session.
   binding.attach(session);
 
+  // Transcript mirror — also session-lifetime, for the same reason: the turn
+  // survives a closed tab, so persistence must not hang off the SSE pipe.
+  const transcript = attachSessionTranscript(
+    session,
+    createDbSink((row) => {
+      appendMessage(db, { conversationId: sessionKey, role: row.role, content: row.content });
+    }),
+  );
+  if (session.cliSessionId) {
+    captureCliSessionId(session, session.cliSessionId.bind(session), (id) =>
+      setCliSessionId(db, sessionKey, id),
+    );
+  }
+
+  // The first user message names the conversation. `ensureTitle` only writes
+  // when the title is still empty, so a rename is never overwritten.
+  ensureTitle(db, sessionKey, deriveTitle(body.text));
+
   const pipe = createTurnSsePipe(session, {
     timeoutMs: getEnv().TURN_TIMEOUT_MS,
     heartbeatMs: 20_000,
   });
+  // Record before sending: the user row must exist even if the CLI rejects
+  // the turn outright, and the mirror must be recording before frame one.
+  transcript.beginTurn(body.text);
   // Kick the turn after the stream exists so its listener is attached first.
-  void pipe.send(body.text);
+  void pipe.send(body.text).then((failure) => {
+    // A rejected send never reaches the session's listeners, so the mirror
+    // would otherwise keep a half-open turn forever. Close it as the error it
+    // was; the browser already got the same reason as a synthetic turn_end.
+    if (failure) transcript.finishTurn();
+  });
 
   return new Response(pipe.stream, {
     status: 200,

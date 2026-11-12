@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  chatStateReducer,
-  initialChatState,
-  chatBootstrapSchema,
-} from "./chat-state";
+import { chatStateReducer, initialChatState } from "./chat-state";
 import type { TurnEvent } from "@/lib/providers/types";
 
 /**
@@ -107,41 +103,5 @@ describe("permission_answered", () => {
         decision: "allow",
       }),
     ).toBe(v);
-  });
-});
-
-describe("chatBootstrapSchema", () => {
-  it("passes through a well-formed bootstrap payload", () => {
-    const payload = {
-      roots: ["/w"],
-      defaultModel: "auto",
-      providers: [
-        {
-          id: "claude",
-          capabilities: {
-            interactiveToolPrompts: true,
-            sessionResume: true,
-            partialText: true,
-            skills: "native",
-            plugins: true,
-          },
-          installed: true,
-          version: null,
-          authed: null,
-          reason: null,
-          models: [{ id: "auto", label: "Auto (CLI default)" }],
-        },
-      ],
-    };
-    expect(chatBootstrapSchema(payload)).toEqual(payload);
-  });
-
-  it("rejects a payload that is not the bootstrap shape", () => {
-    expect(() => chatBootstrapSchema({ roots: "no" })).toThrow();
-    expect(() => chatBootstrapSchema(null)).toThrow();
-    expect(() =>
-      chatBootstrapSchema({ roots: [], defaultModel: "auto", providers: {} }),
-    ).toThrow();
-    expect(() => chatBootstrapSchema("")).toThrow();
   });
 });

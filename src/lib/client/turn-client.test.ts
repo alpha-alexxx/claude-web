@@ -54,30 +54,30 @@ describe("runTurn", () => {
     expect(got[0]).toEqual({ type: "text_delta", text: "Hello" });
   });
 
-  it("sends model and resumeSessionId when present", async () => {
+  it("sends the model override when present and never a resume id", async () => {
     const f = vi.fn(async () => sseResponse([END_FRAME]));
-    await runTurn({
-      ...BASE,
-      fetch: f,
-      model: "opus",
-      resumeSessionId: "cli-1",
-      onEvent: () => {},
-    });
+    await runTurn({ ...BASE, fetch: f, model: "opus", onEvent: () => {} });
     const [, init] = f.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toMatchObject({
-      model: "opus",
-      resumeSessionId: "cli-1",
-    });
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.model).toBe("opus");
+    // The resume target is the server's own column, not a client claim: the
+    // browser cannot name a CLI session to attach to.
+    expect(body).not.toHaveProperty("resumeSessionId");
   });
 
   it("delivers events as frames arrive, not at stream end", async () => {
+    // Deterministic, not timing-based: frame 2 is only enqueued once frame 1
+    // has been DELIVERED. A reader that buffered to stream end would never
+    // reach the enqueue, so the gate would time out instead of racing a clock.
     const encoder = new TextEncoder();
+    let releaseSecond: () => void = () => {};
+    const firstDelivered = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
-        // Two frames, each delayed. The reader must get frame 1 before
-        // frame 2 is enqueued — timing proves incremental delivery.
         controller.enqueue(encoder.encode(TEXT_FRAME));
-        await new Promise((r) => setTimeout(r, 20));
+        await firstDelivered;
         controller.enqueue(encoder.encode(END_FRAME));
         controller.close();
       },
@@ -89,16 +89,17 @@ describe("runTurn", () => {
           headers: { "content-type": "text/event-stream" },
         }),
     );
-    const timestamps: number[] = [];
+    const received: TurnEvent[] = [];
     await runTurn({
       ...BASE,
       fetch: f,
-      onEvent: () => timestamps.push(Date.now()),
+      onEvent: (event) => {
+        received.push(event);
+        if (received.length === 1) releaseSecond();
+      },
     });
     expect(f).toHaveBeenCalledTimes(1);
-    expect(timestamps.length).toBe(2);
-    // The two deliveries are separated in (real) time — incremental reads.
-    expect(timestamps[1] - timestamps[0]).toBeGreaterThanOrEqual(15);
+    expect(received.map((e) => e.type)).toEqual(["text_delta", "turn_end"]);
   });
 
   it("drops corrupt frames without killing the stream", async () => {
@@ -143,6 +144,32 @@ describe("runTurn", () => {
       expect(end.reason).toBe("error");
       expect(end.error).toMatch(/network|fetch|request/i);
     }
+  });
+
+  it("reports acceptance before the first event, and never on a failure", async () => {
+    // The URL settles on acceptance: the row exists the moment the route
+    // answers, which can be long before the model's first token.
+    const order: string[] = [];
+    await runTurn({
+      ...BASE,
+      fetch: async () => sseResponse([TEXT_FRAME, END_FRAME]),
+      onEvent: () => order.push("event"),
+      onAccepted: () => order.push("accepted"),
+    });
+    expect(order[0]).toBe("accepted");
+    expect(order.filter((o) => o === "accepted")).toHaveLength(1);
+
+    // A refused POST left no row behind, so nothing may claim acceptance.
+    let accepted = 0;
+    await runTurn({
+      ...BASE,
+      fetch: async () => new Response('{"error":"forbidden"}', { status: 403 }),
+      onEvent: () => {},
+      onAccepted: () => {
+        accepted += 1;
+      },
+    });
+    expect(accepted).toBe(0);
   });
 });
 

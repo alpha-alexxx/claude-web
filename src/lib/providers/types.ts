@@ -168,4 +168,10 @@ export interface ActiveSession {
   offEvent(cb: (event: TurnEvent) => void): void;
   /** Close the session and its child process, if any. */
   close(): Promise<void>;
+  /**
+   * The CLI's own session id once the underlying process has reported it
+   * (init frame) — the resume target persisted on the conversation row.
+   * Null/absent = not yet known, or the provider keeps no resumable id.
+   */
+  cliSessionId?(): string | null;
 }

@@ -152,6 +152,19 @@ describe("createTurnSsePipe", () => {
     expect(recorded.interrupted).toBe(0); // legacy parity: turn survives reconnects
   });
 
+  it("reports a rejected send so the caller can close its own turn", async () => {
+    vi.useFakeTimers();
+    const { session } = makeSession(new Error("dead CLI"));
+    const pipe = createTurnSsePipe(session, {
+      timeoutMs: 30_000,
+      heartbeatMs: 20_000,
+    });
+    const all = readAll(pipe.stream);
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(pipe.send("hi")).resolves.toBe("dead CLI");
+    await all;
+  });
+
   it("ignores events after turn_end (belated frames, no resurrection)", async () => {
     vi.useFakeTimers();
     const { session, push } = makeSession();

@@ -113,6 +113,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       onEvent: (cb) => session.onEvent(cb),
       offEvent: (cb) => session.offEvent(cb),
       close: () => session.close(),
+      cliSessionId: () => session.cliSessionId(),
     };
   }
 
@@ -132,6 +133,7 @@ export class ClaudeAdapter implements ProviderAdapter {
           onEvent: (cb) => s.onEvent(cb),
           offEvent: (cb) => s.offEvent(cb),
           close: () => s.close(),
+          cliSessionId: () => s.cliSessionId(),
         }
       : null;
   }

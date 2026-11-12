@@ -56,6 +56,22 @@ describe("ensureUser", () => {
     expect(bob.role).toBe("user");
   });
 
+  it("cannot mint two admins even if the insert is retried against a stale count", () => {
+    // The role is chosen inside the INSERT's own subquery, so there is no
+    // window between reading "zero users" and writing the first row. Re-running
+    // ensureUser for a DIFFERENT new id must therefore see the first row.
+    ensureUser(db, alice);
+    ensureUser(db, {
+      id: "user_3def",
+      email: "bob@example.com",
+      displayName: null,
+    });
+    const admins = db
+      .prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'")
+      .get() as { n: number };
+    expect(admins.n).toBe(1);
+  });
+
   it("is idempotent and refreshes email/display name from Clerk", () => {
     ensureUser(db, alice);
     const again = ensureUser(db, {

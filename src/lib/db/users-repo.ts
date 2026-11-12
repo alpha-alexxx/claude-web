@@ -95,10 +95,14 @@ export function ensureUser(db: DatabaseSync, profile: ClerkProfile): UserRow {
     return existing;
   }
 
-  const role: Role = countUsers(db) === 0 ? "admin" : "user";
+  // The admin role is decided IN the INSERT, not by a separate COUNT first:
+  // "read the count, then insert" is two statements, and two requests arriving
+  // together on a fresh database can both read zero and both become admin. A
+  // single statement is atomic in SQLite, so exactly one caller can ever win.
   db.prepare(
-    "INSERT INTO users (id, email, display_name, role) VALUES (?, ?, ?, ?)",
-  ).run(profile.id, profile.email, displayName, role);
+    "INSERT INTO users (id, email, display_name, role) " +
+      "VALUES (?, ?, ?, CASE WHEN (SELECT COUNT(*) FROM users) = 0 THEN 'admin' ELSE 'user' END)",
+  ).run(profile.id, profile.email, displayName);
   return findUserById(db, profile.id)!;
 }
 

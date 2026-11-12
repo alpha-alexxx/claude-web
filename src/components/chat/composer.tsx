@@ -20,11 +20,12 @@ export interface ComposerProps {
   provider: string;
   cwd: string;
   model: string | null;
-  resumeSessionId: string | null;
   running: boolean;
   onEvent: (event: TurnEvent) => void;
   /** Push the trimmed user message into the transcript before the POST. */
   onBeforeSend: (text: string) => void;
+  /** The server accepted the turn; the conversation row now exists. */
+  onAccepted?: () => void;
   onStop: () => void;
 }
 
@@ -43,8 +44,8 @@ export function Composer(props: ComposerProps) {
       cwd: props.cwd,
       text: trimmed,
       model: props.model ?? undefined,
-      resumeSessionId: props.resumeSessionId ?? undefined,
       onEvent,
+      onAccepted: props.onAccepted,
     });
     setText("");
     areaRef.current?.focus();
@@ -58,7 +59,6 @@ export function Composer(props: ComposerProps) {
     props.provider,
     props.cwd,
     props.model,
-    props.resumeSessionId,
   ]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
