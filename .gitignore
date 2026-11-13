@@ -34,6 +34,15 @@ next-env.d.ts
 .env*
 !.env.example
 
+# --- package-manager / net credentials --------------------------------------
+# A project-local .npmrc or .yarnrc routinely carries a registry auth token
+# (`//registry.npmjs.org/:_authToken=…`), and .netrc carries host credentials.
+# None of them are needed in the tree — installs read the user-level copies —
+# but `git add -A` would commit them if one appears here.
+.npmrc
+.yarnrc
+.netrc
+
 # --- local agent state ------------------------------------------------------
 # Superpowers/SDD scratch state, worktrees and local-only settings.
 /.superpowers/
