@@ -1,6 +1,6 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
+# --- dependencies -----------------------------------------------------------
 /node_modules
 /.pnp
 .pnp.*
@@ -10,38 +10,52 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
+# --- testing ----------------------------------------------------------------
 /coverage
 
-# app data (SQLite, integration env) — never commit
+# --- app data (SQLite, integration env, render key, MCP registry) -----------
+# Runtime state written by the server. Never commit: the DB holds chat
+# history and the audit trail, integrations.env holds provider credentials.
 /data/
 
-# next.js
+# --- Next.js ----------------------------------------------------------------
 /.next/
 /out/
+# next-env.d.ts is generated on dev/build; Next's docs say not to track it.
+next-env.d.ts
+*.tsbuildinfo
 
-# production
+# --- production -------------------------------------------------------------
 /build
 
-# misc
-.DS_Store
-*.pem
+# --- env files --------------------------------------------------------------
+# `.env` holds Clerk keys and secrets; only the value-free template belongs in
+# git, so a fresh checkout knows which variables exist.
+.env*
+!.env.example
 
-# debug
+# --- local agent state ------------------------------------------------------
+# Superpowers/SDD scratch state, worktrees and local-only settings.
+/.superpowers/
+.claude/settings.local.json
+
+# --- logs -------------------------------------------------------------------
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
-# env files (can opt-in for committing if needed)
-.env*
-# ...except the documented template: it carries no values, and a checkout
-# without it has no record of which variables exist.
-!.env.example
+# --- editors / OS -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*~
 
-# vercel
+# --- misc -------------------------------------------------------------------
+*.pem
 .vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
