@@ -24,9 +24,9 @@ import type { ProviderId } from "@/lib/providers/types";
  * on the first message with a spawn error far from the cause. Each refusal
  * names the missing step.
  *
- * For providers with no adapter in this build, `enabled` is still recorded —
- * it is operator intent, and the Integrations card explains that the adapter
- * has not landed — but chat will not offer it (getAdapter refuses it).
+ * A provider whose CLI is missing or whose credentials are absent can still
+ * have its row enabled — `enabled` is operator intent — but chat will not
+ * offer it until the gate passes; the card names what is missing.
  *
  * Disabling is deliberately ungated: it only ever removes a capability, so a
  * provider that became broken (binary deleted, credentials cleared) must still

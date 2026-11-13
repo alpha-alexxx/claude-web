@@ -79,13 +79,13 @@ All four adapters ship. Which ones a deployment offers is `ENABLED_PROVIDERS` al
 | Adapter in this build | **yes** | **yes** | **yes** | **yes** |
 | Transport | Agent SDK (bundles its CLI) | `codex exec --experimental-json` | `opencode run --format json` (NDJSON) | `qoder --print --output-format stream-json` |
 | Auth | host CLI login (inherited) | device code / API key | environment | personal access token |
-| Per-tool permission prompts | **yes** | policy presets | policy rules | none (bypass mode) |
+| Per-tool permission prompts | **yes** | none (fixed sandbox policy) | none (`--auto`) | none (bypass mode) |
 | Streaming text | **yes** | final message only | **yes** | **yes** |
 | Skills | via `~/.claude/skills` symlink | native `~/.agents/skills` | reads `.agents` + `.claude` | managed links |
 | MCP config | `~/.claude.json` | `~/.codex/config.toml` | `~/.config/opencode/opencode.json` | `~/.qoder/settings.json` |
 | Install size | none (bundled) | ≈437 MiB | ≈204 MiB | ≈64 MiB |
 
-Capability differences are declared by each adapter and drive the UI, not hard-coded per provider: where a CLI has no answerable per-call callback, the conversation header shows a policy selector instead of permission cards.
+Only Claude has an answerable per-call callback. The other three expose no prompt to route, so each adapter pins one policy in its argv instead — Codex `--sandbox workspace-write` with `approval_policy="never"`, OpenCode `--auto`, Qoder `--permission-mode bypass_permissions` — and the chat header shows no permission controls for them. Those are not configurable in this build. Their tool calls render in the transcript; only Claude's are written to the `tool_calls` audit table, because only Claude's have a decision to record.
 
 ## Security model
 
@@ -138,7 +138,7 @@ You ran `next start`/`next dev` directly. Use `yarn start` / `yarn dev` — they
 The message names the variable. A common cause is putting the publishable key in `CLERK_SECRET_KEY` (or an `sk_` key in a `NEXT_PUBLIC_` variable; the schema refuses both).
 
 **Chat says no provider is available.**
-`ENABLED_PROVIDERS` is empty, or names only CLIs this build has no adapter for. It defaults to `claude`; add the others once their CLI is installed, e.g. `ENABLED_PROVIDERS=claude,codex,opencode,qoder`. A provider enabled in the Integrations page but absent here stays listed as inactive — the page records intent, `ENABLED_PROVIDERS` decides what chat may offer.
+`ENABLED_PROVIDERS` is empty, or names a provider whose CLI is not installed on this server — every one of the four has an adapter in this build, so a missing entry is an install problem, not a missing feature. It defaults to `claude`. A provider enabled in the Integrations page but absent here stays listed as inactive — the page records intent, `ENABLED_PROVIDERS` decides what chat may offer.
 
 **Sending a message returns 400 `cwd outside allowed workspace roots`.**
 `ALLOWED_WORKSPACE_ROOTS` is empty, or the chosen directory is outside it, or it no longer exists. Roots are resolved with `realpath`, so a root that is itself a symlink resolves to its target.
@@ -159,7 +159,7 @@ True by design and stated in SECURITY.md: agents run as the same OS user as the 
 
 ```bash
 yarn dev            # launcher + next dev
-yarn test           # vitest (740+ tests)
+yarn test           # vitest (960+ tests)
 yarn lint           # eslint
 npx tsc --noEmit    # typecheck
 yarn build          # production build

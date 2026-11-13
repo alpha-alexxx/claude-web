@@ -3,10 +3,9 @@
  * backend implements. The UI consumes only `TurnEvent`s and capability
  * flags; per-provider `if`s in components are a design failure.
  *
- * v1 ships the Claude adapter complete. Codex/OpenCode/Qoder land
- * incrementally behind this same interface (see the plan's adapter build
- * order), so the shapes below are deliberately provider-neutral: no Claude
- * vocabulary beyond what maps 1:1 onto the neutral event stream.
+ * All four adapters — Claude, Codex, OpenCode, Qoder — implement this seam,
+ * so the shapes below are deliberately provider-neutral: no Claude vocabulary
+ * beyond what maps 1:1 onto the neutral event stream.
  */
 
 /**

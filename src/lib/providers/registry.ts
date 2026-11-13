@@ -2,6 +2,9 @@ import "server-only";
 import { getEnv } from "../env";
 import type { ProviderAdapter, ProviderId } from "./types";
 import { getClaudeAdapter } from "./claude/adapter";
+import { getCodexAdapter } from "./codex/adapter";
+import { getOpenCodeAdapter } from "./opencode/adapter";
+import { getQoderAdapter } from "./qoder/adapter";
 
 /**
  * Provider registry — the one place that maps ENABLED_PROVIDERS to adapter
@@ -9,20 +12,20 @@ import { getClaudeAdapter } from "./claude/adapter";
  * feature module ever imports a concrete adapter directly.
  *
  * Adapters are lazy: constructing one must not spawn a CLI or probe the
- * filesystem. A provider becomes available only when it is BOTH enabled and
- * implemented (codex/opencode/qoder land incrementally and are refused
- * here until their adapter exists).
+ * filesystem (each `get*Adapter` caches a singleton that does no I/O at
+ * construction). A provider becomes available only when it is BOTH enabled
+ * and implemented.
  */
 
 const KNOWN: readonly ProviderId[] = ["claude", "codex", "opencode", "qoder"];
 
 /**
- * Adapters that exist in this build. The others are listed by Integrations
- * (so an operator can install the CLI ahead of the adapter) but never
- * activated — a UI that offers a backend it cannot drive is worse than one
- * that says "not available yet".
+ * Adapters that exist in this build. Kept explicit rather than derived from
+ * KNOWN: `isImplemented` is what the Integrations page reports as
+ * `adapterAvailable`, and a provider listed in KNOWN without an entry here
+ * must read as unavailable instead of failing at session start.
  */
-const IMPLEMENTED: readonly ProviderId[] = ["claude"];
+const IMPLEMENTED: readonly ProviderId[] = ["claude", "codex", "opencode", "qoder"];
 
 export function isImplemented(id: ProviderId): boolean {
   return IMPLEMENTED.includes(id);
@@ -35,12 +38,20 @@ export function isEnabled(id: ProviderId): boolean {
 
 /** Returns the adapter for an enabled, implemented provider, else null. */
 export function getAdapter(id: ProviderId | string): ProviderAdapter | null {
-  const enabled = getEnv().ENABLED_PROVIDERS;
-  if (!enabled.includes(id as ProviderId)) return null;
-  if (id === "claude") return getClaudeAdapter();
-  // codex / opencode / qoder: adapters land incrementally (plan's adapter
-  // build order). Until then they stay refused even when enabled.
-  return null;
+  if (!isImplemented(id as ProviderId)) return null;
+  if (!isEnabled(id as ProviderId)) return null;
+  switch (id) {
+    case "claude":
+      return getClaudeAdapter();
+    case "codex":
+      return getCodexAdapter();
+    case "opencode":
+      return getOpenCodeAdapter();
+    case "qoder":
+      return getQoderAdapter();
+    default:
+      return null;
+  }
 }
 
 /** All enabled+implemented adapters (used by the composer's picker). */

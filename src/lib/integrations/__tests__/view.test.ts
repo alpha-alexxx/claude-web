@@ -162,9 +162,11 @@ describe("integrationsView", () => {
     expect(view.integrations[1].drift).toBe(true);
   });
 
-  it("reports active only when the row is enabled AND the adapter ships", async () => {
-    // Codex has a registry entry but no adapter in this build. Enabling it is
-    // recorded intent, yet chat must still not offer it.
+  it("reports active only when the row is enabled AND the adapter is enabled", async () => {
+    // Codex HAS an adapter in this build, but the dummy env enables only
+    // claude, so `isEnabled("codex")` fails. Enabling the row is recorded
+    // intent, yet chat must still not offer it. Claude is the mirror case:
+    // enabled by env, row off.
     vi.mocked(detectAll).mockResolvedValue([
       detection({ id: "claude", status: "bundled" }),
       detection({ id: "codex", status: "installed", version: "0.167.0" }),
