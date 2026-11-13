@@ -2,7 +2,7 @@
 
 A self-hosted web app that puts a browser in front of coding-agent CLIs. Point it at a workspace, describe a task, and watch the agent work — text, thinking, tool calls, permission prompts — with no terminal required.
 
-v1 ships the **Claude Code** adapter complete (via `@anthropic-ai/claude-agent-sdk`), plus the provider seam, Integrations page, shared skills store, MCP generators and per-tool settings editors that the Codex, OpenCode and Qoder adapters plug into without touching the UI.
+v1 ships adapters for all four CLIs — **Claude Code** (via `@anthropic-ai/claude-agent-sdk`), **Codex**, **OpenCode** and **Qoder** — behind one seam, plus the Integrations page, shared skills store, MCP generators and per-tool settings editors. Each CLI stays off until its id appears in `ENABLED_PROVIDERS`.
 
 - **Chat** — streaming turns, thinking blocks, tool cards with diffs and terminal output, Stop, model picker, per-turn cost/token footer.
 - **Permission prompts** — Claude's per-tool Allow / Allow for session / Deny cards, with every request and decision written to an audit table.
@@ -72,14 +72,15 @@ Every variable is parsed and validated once at boot by `src/lib/env.ts` — a mi
 
 ## Providers
 
-Only `claude` has an adapter in this build. The other three are detected and installable ahead of time; the registry refuses them until their adapter exists.
+All four adapters ship. Which ones a deployment offers is `ENABLED_PROVIDERS` alone; a CLI that is not installed is reported by Integrations and refused at session start with a clear message rather than silently disappearing.
 
 | | Claude Code | Codex | OpenCode | Qoder |
 |---|---|---|---|---|
-| Adapter in this build | **yes** | no | no | no |
-| Transport | Agent SDK (bundles its CLI) | `codex exec --json` | `opencode serve` + SSE | `qoder -p --stream-json` |
+| Adapter in this build | **yes** | **yes** | **yes** | **yes** |
+| Transport | Agent SDK (bundles its CLI) | `codex exec --experimental-json` | `opencode run --format json` (NDJSON) | `qoder --print --output-format stream-json` |
 | Auth | host CLI login (inherited) | device code / API key | environment | personal access token |
-| Per-tool permission prompts | **yes** | policy presets | policy rules | permission mode |
+| Per-tool permission prompts | **yes** | policy presets | policy rules | none (bypass mode) |
+| Streaming text | **yes** | final message only | **yes** | **yes** |
 | Skills | via `~/.claude/skills` symlink | native `~/.agents/skills` | reads `.agents` + `.claude` | managed links |
 | MCP config | `~/.claude.json` | `~/.codex/config.toml` | `~/.config/opencode/opencode.json` | `~/.qoder/settings.json` |
 | Install size | none (bundled) | ≈437 MiB | ≈204 MiB | ≈64 MiB |
@@ -137,7 +138,7 @@ You ran `next start`/`next dev` directly. Use `yarn start` / `yarn dev` — they
 The message names the variable. A common cause is putting the publishable key in `CLERK_SECRET_KEY` (or an `sk_` key in a `NEXT_PUBLIC_` variable; the schema refuses both).
 
 **Chat says no provider is available.**
-`ENABLED_PROVIDERS` has no working adapter. Set `ENABLED_PROVIDERS=claude`.
+`ENABLED_PROVIDERS` is empty, or names only CLIs this build has no adapter for. It defaults to `claude`; add the others once their CLI is installed, e.g. `ENABLED_PROVIDERS=claude,codex,opencode,qoder`. A provider enabled in the Integrations page but absent here stays listed as inactive — the page records intent, `ENABLED_PROVIDERS` decides what chat may offer.
 
 **Sending a message returns 400 `cwd outside allowed workspace roots`.**
 `ALLOWED_WORKSPACE_ROOTS` is empty, or the chosen directory is outside it, or it no longer exists. Roots are resolved with `realpath`, so a root that is itself a symlink resolves to its target.
@@ -179,7 +180,7 @@ src/
     chat/              bootstrap, transcript, recorder, conversation views
     db/                node:sqlite client, migrations, repos, boot singleton
     integrations/      registry, detect, installer, credentials, disk
-    providers/         the adapter seam: types, registry, claude/
+    providers/         the adapter seam: types, registry, claude/ codex/ opencode/ qoder/
     render/            HMAC tokens, mime sniffing, SSRF-checked fetches
     skills/ mcp/ settings/ plugins/   shared stores + per-tool projection
 scripts/start.mjs      the only process that binds HOST:PORT
