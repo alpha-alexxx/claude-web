@@ -30,7 +30,7 @@ yarn build
 yarn start
 ```
 
-Open `http://127.0.0.1:8765` and sign in. The **first account that signs in becomes the admin**; everyone after that is a regular user until an admin promotes them.
+Open `http://localhost:3000` and sign in. The **first account that signs in becomes the admin**; everyone after that is a regular user until an admin promotes them.
 
 `npm run dev` runs the same launcher against `next dev`, so development also honours `HOST`/`PORT` from `.env`.
 
@@ -43,8 +43,8 @@ Every variable is parsed and validated once at boot by `src/lib/env.ts` — a mi
 | `CLERK_SECRET_KEY` | **required** | `sk_…`. Server-only. Never in client code. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | **required** | `pk_…`. Public by design, but must be a publishable key — the schema rejects an `sk_` here. |
 | `DATABASE_PATH` | `./data/claude-web.db` | SQLite file. Its directory is created at boot, `0700` / file `0600`. |
-| `HOST` | `127.0.0.1` | Where the server listens. See the note below. |
-| `PORT` | `8765` | Same. |
+| `HOST` | `localhost` | Where the server listens. See the note below. |
+| `PORT` | `3000` | Same. |
 | `TRUST_PROXY` | `false` | Honour `X-Forwarded-For` / `X-Forwarded-Proto` from the direct peer. Only enable behind a proxy you control. |
 | `ALLOWED_WORKSPACE_ROOTS` | *(empty)* | Comma-separated absolute directories a conversation's cwd may resolve inside. Empty disables chat (no valid cwd). |
 | `DEFAULT_MODEL` | `auto` | `auto` = the CLI's default. |
@@ -107,7 +107,7 @@ The app is meant to listen on loopback and be fronted by a TLS terminator.
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:8765;
+    proxy_pass http://127.0.0.1:3000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -117,7 +117,7 @@ location / {
 }
 ```
 
-Then set `TRUST_PROXY=true` so rate-limit keys use the real client IP and HSTS is emitted only for requests that actually arrived over TLS. Behind a proxy, keep `HOST=127.0.0.1` — the proxy is the only thing that should reach the port.
+Then set `TRUST_PROXY=true` so rate-limit keys use the real client IP and HSTS is emitted only for requests that actually arrived over TLS. Behind a proxy, keep `HOST=localhost` (not `127.0.0.1` — see the note above on why the spelling matters) and leave the port loopback-only, so the proxy is the only thing that can reach it.
 
 Security headers come from three places by design: static ones (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`) in `next.config.ts` so they cover static assets too; the **CSP** from the Proxy, built by Clerk's own builder because it knows the sign-in script and challenge hosts; **HSTS** from the Proxy only when the request is secure. None of them is duplicated: the Proxy's headers are applied before the response is sent, and a header already present wins, so a `headers()` entry *or* a route-handler header for the CSP would be silently dropped. Route handlers therefore set only what is theirs (`/api/render` adds `nosniff` and `Content-Disposition`, never a CSP).
 
@@ -131,7 +131,7 @@ For a self-hosted single-operator instance, in the Clerk Dashboard:
 
 ## Troubleshooting
 
-**Server listens on `0.0.0.0:3000` instead of `127.0.0.1:8765`.**
+**Server listens on `0.0.0.0:3000` instead of `localhost:3000`.**
 You ran `next start`/`next dev` directly. Use `yarn start` / `yarn dev` — they go through `scripts/start.mjs`, which is the only thing that applies `HOST`/`PORT`.
 
 **`invalid environment configuration — CLERK_SECRET_KEY: …` at boot.**

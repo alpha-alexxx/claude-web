@@ -53,7 +53,7 @@ const EnvSchema = z.object({
    * spelling makes own-origin rewrites look external (self-proxy, `EPROTO`
    * through a TLS tunnel). Both names reach the same socket. */
   HOST: z.string().default("localhost"),
-  PORT: z.coerce.number().int().min(1).max(65535).default(8765),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
 
   /** Trust X-Forwarded-For from the direct peer (your
    * reverse proxy). Leave false when exposed directly. */

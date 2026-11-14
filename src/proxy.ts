@@ -1,5 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest, type NextProxy } from "next/server";
 import { isProtectedPage, SIGN_IN_URL, SIGN_UP_URL } from "@/lib/auth/routes";
 
 /**
@@ -213,8 +213,11 @@ const clerkProxy = clerkMiddleware(
 export default async function proxy(
   req: NextRequest,
   event: Parameters<typeof clerkProxy>[1],
-): Promise<Response> {
-  return resumeSelfRewrite(req, await clerkProxy(req, event));
+): Promise<Awaited<ReturnType<NextProxy>>> {
+  const res = await clerkProxy(req, event);
+  // Clerk answers both branches of its handler with a Response; Next's type
+  // additionally allows a handler that falls through to return nothing.
+  return res ? resumeSelfRewrite(req, res) : res;
 }
 
 export const config = {

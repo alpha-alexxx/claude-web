@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
  * Why a launcher exists at all: `next start` and `next dev` bind 0.0.0.0:3000
  * by default (only the PORT half has an env binding, and the docs say `PORT`
  * "cannot be set in `.env`"). This app's env schema declares HOST=localhost /
- * PORT=8765 and the plan is explicit that it must not listen on a public
+ * PORT=3000 and the project requires that it must not listen on a public
  * interface unless the operator says so. Neither Next nor the schema can
  * enforce that on their own, so the launcher reads `.env` and passes the two
  * values as flags. The defaults here MATCH `lib/env.ts`; if they ever
@@ -23,7 +23,7 @@ import { createRequire } from "node:module";
  * (`/etc/hosts` maps localhost to 127.0.0.1), so nothing else changes.
  */
 export const DEFAULT_HOST = "localhost";
-export const DEFAULT_PORT = 8765;
+export const DEFAULT_PORT = 3000;
 
 /** Subcommands that bind a socket and therefore need the derived flags. */
 export const SUBCOMMANDS = /** @type {const} */ (["start", "dev"]);

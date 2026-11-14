@@ -12,7 +12,7 @@ describe("parseEnv", () => {
     const env = parseEnv(VALID);
     expect(env.DATABASE_PATH).toBe("./data/claude-web.db");
     expect(env.HOST).toBe("localhost");
-    expect(env.PORT).toBe(8765);
+    expect(env.PORT).toBe(3000);
     expect(env.TRUST_PROXY).toBe(false);
     expect(env.ENABLED_PROVIDERS).toEqual(["claude"]);
     expect(env.MAX_CONCURRENT_TURNS).toBe(2);
