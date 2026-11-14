@@ -141,9 +141,10 @@ export function IntegrationsPanel({ initialView }: IntegrationsPanelProps) {
 
       {!view.installsEnabled && (
         <p className="mb-4 text-sm text-muted-foreground">
-          Install and uninstall are off. Add the exact package spec to{" "}
-          <code className="font-mono text-xs">INSTALL_ALLOWLIST</code> to
-          enable them.
+          Install and uninstall are off because{" "}
+          <code className="font-mono text-xs">INSTALL_ALLOWLIST</code> is set to
+          an empty list. Remove the setting to use the registry&apos;s pinned
+          versions, or set it to the exact specs you accept.
         </p>
       )}
 

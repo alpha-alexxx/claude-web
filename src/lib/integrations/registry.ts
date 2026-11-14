@@ -11,10 +11,11 @@ export type { AuthMethod };
  * it, how big it is, and where its credentials live.
  *
  * Versions are pinned EXACTLY. An install button is only ever wired to a spec
- * declared here, and the spec must also appear verbatim in
- * INSTALL_ALLOWLIST before the server will run it. Two independent gates
+ * declared here, and the spec must also be on the effective allowlist before
+ * the server will run it — this registry's own pins when INSTALL_ALLOWLIST is
+ * unset, or whatever an explicit list narrows that to. Two independent gates
  * because either one alone is a single typo away from installing something
- * else.
+ * else, and the allowlist can never widen what this file declares.
  *
  * Claude is deliberately first-class-exempt: the Agent SDK bundles its own CLI
  * binary, so there is nothing to detect on PATH, nothing to install, and no

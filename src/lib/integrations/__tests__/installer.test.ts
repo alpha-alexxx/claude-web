@@ -11,6 +11,8 @@ import {
   createNpmRunner,
   type NpmRunner,
 } from "../installer";
+import { installAllowlist } from "../allowlist";
+import { parseEnv } from "@/lib/env";
 import type { RunOptions, RunResult } from "@/lib/exec/run";
 
 /**
@@ -56,10 +58,31 @@ const sandbox = (over: { freeBytes?: number; allowlist?: string[] } = {}) => ({
 });
 
 describe("planInstall", () => {
-  it("refuses installs when INSTALL_ALLOWLIST is empty", async () => {
+  it("refuses installs when the allowlist is explicitly empty", async () => {
     const plan = await planInstall("codex", { ...sandbox(), allowlist: [] });
     expect(plan.refusal).toBe("installs_disabled");
     expect(plan.reason).toContain("INSTALL_ALLOWLIST");
+  });
+
+  it("defaults to the registry pins when INSTALL_ALLOWLIST is unset", async () => {
+    // The feature: an operator who never sets the key can still install the
+    // exact versions the registry declares. Nothing is widened — the plan's
+    // spec is still the registry's.
+    const env = parseEnv({
+      CLERK_SECRET_KEY: "sk_test_x",
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_x",
+    });
+    expect(installAllowlist(env)).toEqual([
+      "@openai/codex@0.167.0",
+      "@opencode/cli@2.2.6",
+      "@qoder-ai/qodercli@1.1.86",
+    ]);
+    const plan = await planInstall("codex", {
+      ...sandbox(),
+      allowlist: installAllowlist(env),
+    });
+    expect(plan.refusal).toBeNull();
+    expect(plan.spec).toBe("@openai/codex@0.167.0");
   });
 
   it("refuses a spec that is not in the allowlist, naming it", async () => {

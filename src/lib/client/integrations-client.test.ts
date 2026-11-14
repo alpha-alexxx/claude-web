@@ -45,7 +45,8 @@ const VIEW = {
         spec: "@openai/codex@0.167.0",
         allowed: false,
         refusal: "installs_disabled",
-        reason: "Server-side installs are disabled (INSTALL_ALLOWLIST is empty)",
+        reason:
+          "Server-side installs are disabled: INSTALL_ALLOWLIST is set to an empty list.",
         freeLabel: null,
       },
     },

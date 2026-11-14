@@ -5,7 +5,6 @@ import { checkRateLimit, RATE_LIMITS } from "@/lib/auth/rate-limit";
 import { sameOrigin, bodyTooLarge } from "@/lib/auth/request-guards";
 import { getBootDb } from "@/lib/db/boot";
 import { recordAudit } from "@/lib/db/audit-repo";
-import { getEnv } from "@/lib/env";
 import { runInstall, runUninstall } from "@/lib/integrations/installer";
 import { invalidateDetection } from "@/lib/integrations/detect";
 import { integrationSpec } from "@/lib/integrations/registry";
@@ -15,9 +14,9 @@ import type { ProviderId } from "@/lib/providers/types";
  * POST /api/integrations/[id]/install — pinned install, or uninstall.
  *
  * The request names a provider and an ACTION; it never names a package. The
- * spec comes from the registry and must also be allowlisted (see installer.ts),
- * so a compromised client can at most ask for the exact versions the operator
- * already accepted — five times an hour.
+ * spec comes from the registry and must also be on the effective allowlist
+ * (see installer.ts / allowlist.ts), so a compromised client can at most ask
+ * for the exact versions the operator accepts — five times an hour.
  *
  * Both directions are audited BEFORE the work starts where possible: an install
  * that times out halfway is exactly the case you want a row for. Rate limiting
@@ -95,9 +94,12 @@ export async function POST(
     // see recordAudit's contract — never let the log block the action
   }
 
+  // The plan resolves the effective allowlist itself, so there is exactly one
+  // rule (registry pins unless INSTALL_ALLOWLIST narrows them) between the
+  // card's disabled state and the process that actually runs.
   const outcome =
     action === "install"
-      ? await runInstall(spec.id, { allowlist: getEnv().INSTALL_ALLOWLIST })
+      ? await runInstall(spec.id)
       : await runUninstall(spec.id);
 
   try {

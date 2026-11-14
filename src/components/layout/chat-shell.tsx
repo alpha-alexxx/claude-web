@@ -9,6 +9,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Sidebar, SidebarFallback } from "./sidebar";
+import { SystemMeter } from "./system-meter";
 import { UserMenu } from "./user-menu";
 
 /**
@@ -38,7 +39,7 @@ export function ChatShell({ children }: { children: ReactNode }) {
     <div className="flex h-dvh min-h-0 w-full overflow-hidden">
       <aside className="hidden w-64 shrink-0 border-r border-sidebar-border md:block">
         <Suspense fallback={<SidebarFallback />}>
-          <Sidebar footer={<UserMenu />} />
+          <Sidebar footer={<SidebarFooter />} />
         </Suspense>
       </aside>
 
@@ -69,11 +70,27 @@ export function ChatShell({ children }: { children: ReactNode }) {
         >
           <SheetTitle className="sr-only">Conversations</SheetTitle>
           <Suspense fallback={<SidebarFallback />}>
-            <Sidebar onNavigate={() => setOpen(false)} footer={<UserMenu />} />
+            <Sidebar onNavigate={() => setOpen(false)} footer={<SidebarFooter />} />
           </Suspense>
         </SheetContent>
       </Sheet>
     </div>
+  );
+}
+
+/**
+ * The footer of BOTH sidebars: the live host meters above the account row.
+ *
+ * `SystemMeter` is a shared-store subscriber rather than a per-instance
+ * poller, so rendering it twice costs one 5 s interval — and it renders
+ * nothing at all for a viewer the stats route refuses.
+ */
+function SidebarFooter() {
+  return (
+    <>
+      <SystemMeter />
+      <UserMenu />
+    </>
   );
 }
 

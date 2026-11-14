@@ -12,6 +12,7 @@ v1 ships adapters for all four CLIs — **Claude Code** (via `@anthropic-ai/clau
 - **MCP servers** — one registry, generated into each tool's native config (JSON or TOML) without touching entries it does not own.
 - **Settings** — per-tool config editors with secret redaction and timestamped backups.
 - **Integrations** — detect, pinned-install and authenticate the other three CLIs.
+- **System meters** — live CPU, heap, RSS and storage in the sidebar footer, admins only.
 
 ## Requirements
 
@@ -52,7 +53,7 @@ Every variable is parsed and validated once at boot by `src/lib/env.ts` — a mi
 | `TURN_TIMEOUT_MS` | `1800000` | Hard stop for a single turn. |
 | `CLAUDE_EXECUTABLE` | *(empty)* | Override for the Claude binary. Normally unused: the SDK bundles its own. |
 | `ENABLED_PROVIDERS` | `claude` | Which adapters may activate. Unknown names fail at boot. |
-| `INSTALL_ALLOWLIST` | *(empty)* | Exact-pinned npm specs the Integrations page may install. Empty = installs disabled. |
+| `INSTALL_ALLOWLIST` | *(unset)* | Exact-pinned npm specs the Integrations page may install. Unset = the registry's own pins; set a list to narrow; set it empty to disable installs. |
 
 **`HOST` and `PORT` are read by the launcher, not by Next.** `next start` binds `0.0.0.0:3000` by default, only reads `PORT` from the process environment (the Next docs state `PORT` "cannot be set in `.env`"), and has no env binding for the hostname at all. `scripts/start.mjs` loads `.env` and passes both as `-H`/`-p` flags. Launching `next start` directly bypasses that and will listen on every interface.
 
@@ -68,7 +69,7 @@ Every variable is parsed and validated once at boot by `src/lib/env.ts` — a mi
 
 **Settings.** Each tool's config file is shown with secret-looking values replaced by `***`. Typing over a `***` replaces the secret; leaving it alone restores the stored value. A save that changes nothing writes nothing; a real change backs up the original first.
 
-**Integrations.** Cards show whether each CLI is installed, its version, and how it authenticates. Installing is disabled unless the exact package spec appears in `INSTALL_ALLOWLIST`. Credentials for third-party CLIs go to `data/integrations.env` (0600) and are injected only into that provider's child process; the API reports `configured: true|false` and key names, never values.
+**Integrations.** Cards show whether each CLI is installed, its version, and how it authenticates. Install offers the registry's exact pinned version; leaving `INSTALL_ALLOWLIST` unset enables all three, an explicit list narrows it, and an explicitly empty value turns installs off. Credentials for third-party CLIs go to `data/integrations.env` (0600) and are injected only into that provider's child process; the API reports `configured: true|false` and key names, never values.
 
 ## Providers
 
@@ -94,7 +95,7 @@ Full detail in [SECURITY.md](SECURITY.md). The short version:
 - **Identity is Clerk's.** The app stores no passwords. The local `users` table is an authorization mirror only — Clerk user id, email, display name, role, disabled flag.
 - **Every route authenticates itself.** Proxy does the cheap page redirect; handlers call `requireActor()` because Next's docs warn that Proxy coverage can be silently lost by a matcher change.
 - **State-changing requests must be same-origin** (Origin/Host match; a missing Origin means a non-browser client, which carries no ambient credentials).
-- **Rate limits** are in-memory sliding windows keyed by user: 10 turns/min, 5 privileged integration actions/hour, 60 render mints/min and 180 render reads/min. There is no per-IP general-API bucket — read routes are bounded by authentication instead.
+- **Rate limits** are in-memory sliding windows keyed by user: 10 turns/min, 5 privileged integration actions/hour, 60 render mints/min, 180 render reads/min and 60 system-stats reads/min. There is no per-IP general-API bucket — read routes are bounded by authentication instead.
 - **Working directories are contained**: the client's cwd is `realpath`-resolved and rejected unless it is inside a configured root, so a symlink cannot escape.
 - **Agent output is never rendered as HTML.** There is no markdown renderer and no `dangerouslySetInnerHTML`; transcripts render as text.
 - **Images go through a token proxy.** A client POSTs a path or URL, the server validates it (containment for local paths, https-only + SSRF policy for remote) and mints a 5-minute HMAC token bound to the user; the GET re-validates and streams bytes with `nosniff` and a `sandbox` policy. SVG is refused.

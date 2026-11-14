@@ -26,6 +26,26 @@ const csvList = (def = "") =>
         .filter(Boolean),
     );
 
+/**
+ * A comma-separated list that remembers whether the key was present at all.
+ *
+ * `csvList()` collapses "absent" and "present but empty" into `[]`, and for
+ * INSTALL_ALLOWLIST those two must mean opposite things: absent = use the
+ * registry's own pins (installs work out of the box), explicitly empty =
+ * installs are off. `process.loadEnvFile` keeps an `KEY=` line present as "",
+ * so `undefined` here really does mean "the operator did not say".
+ */
+const optionalCsvList = z
+  .string()
+  .optional()
+  .transform((raw) => ({
+    set: raw !== undefined,
+    list: (raw ?? "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
+  }));
+
 const EnvSchema = z.object({
   /** SQLite file path. Parent dir is created by the db client. */
   DATABASE_PATH: z.string().default("./data/claude-web.db"),
@@ -92,9 +112,13 @@ const EnvSchema = z.object({
     return list;
   }),
 
-  /** Exact-pinned package specs that Integrations may install. Empty list =
-   * server-side installs are disabled entirely. */
-  INSTALL_ALLOWLIST: csvList(),
+  /** Exact-pinned package specs that Integrations may install.
+   *
+   * Unset (the default) means "use the registry's pins" — the three CLI specs
+   * declared in `src/lib/integrations/registry.ts` — so installs work out of the
+   * box. Set it to a list to narrow that; set it to an empty value
+   * (`INSTALL_ALLOWLIST=`) to turn server-side installs off entirely. */
+  INSTALL_ALLOWLIST: optionalCsvList,
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;

@@ -8,6 +8,7 @@ import type { ProviderId } from "@/lib/providers/types";
 import { detectAll } from "./detect";
 import { credentialStatus } from "./credentials";
 import { npmGlobalPrefix } from "./disk";
+import { installAllowlist } from "./allowlist";
 import { planInstall, resolveNpm } from "./installer";
 import { INTEGRATIONS } from "./registry";
 import { formatMiB } from "./disk";
@@ -39,6 +40,9 @@ export async function integrationsView(
 ): Promise<IntegrationsView> {
   const env = getEnv();
   const dbPath = env.DATABASE_PATH;
+  // Resolve the effective allowlist once and hand it to every plan, so the
+  // cards' disabled states and the route's preflight read the same list.
+  const allowlist = installAllowlist(env);
   const [detections, rows] = await Promise.all([
     detectAll({ refresh: options.refresh }),
     Promise.resolve(listIntegrations(getBootDb())),
@@ -65,6 +69,7 @@ export async function integrationsView(
     if (!detection) continue;
     const row = rowById.get(spec.id);
     const plan = await planInstall(spec.id, {
+      allowlist,
       prefix: async () => (await prefixOnce()).dir,
     });
     const pin = pinnedVersionOf(spec.installSpec);
@@ -101,11 +106,11 @@ export async function integrationsView(
   }
 
   const known = new Set(INTEGRATIONS.map((s) => s.installSpec).filter(Boolean));
-  const unknown = env.INSTALL_ALLOWLIST.filter((s) => !known.has(s));
+  const unknown = allowlist.filter((s) => !known.has(s));
 
   return {
     integrations: views,
-    installsEnabled: env.INSTALL_ALLOWLIST.length > 0,
+    installsEnabled: allowlist.length > 0,
     allowlistWarning:
       unknown.length > 0
         ? `INSTALL_ALLOWLIST names ${unknown.join(", ")}, which this app does not install`

@@ -293,7 +293,7 @@ describe("POST /api/integrations/[id]/install", () => {
     const res = await postInstall(req("POST", { action: "install" }), ctx("codex") as never);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, code: "installed" });
-    expect(runInstall).toHaveBeenCalledWith("codex", { allowlist: ["@openai/codex@0.167.0"] });
+    expect(runInstall).toHaveBeenCalledWith("codex");
     expect(auditActions()).toEqual([
       "integration.install.start",
       "integration.install.ok",
@@ -354,7 +354,7 @@ describe("POST /api/integrations/[id]/install", () => {
     );
     // Extra keys are dropped by zod's object; the spec can never reach npm.
     expect(res.status).toBe(200);
-    expect(runInstall).toHaveBeenCalledWith("codex", { allowlist: ["@openai/codex@0.167.0"] });
+    expect(runInstall).toHaveBeenCalledWith("codex");
 
     expect((await postInstall(req("POST", { action: "rm -rf" }), ctx("codex") as never)).status).toBe(
       400,

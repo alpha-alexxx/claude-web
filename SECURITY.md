@@ -31,7 +31,7 @@ The Proxy (`src/proxy.ts`) does the cheap page-level redirect to `/sign-in` for 
 Authorization is split:
 
 - **Regular users**: chat, conversations, bootstrap, health, permissions, render.
-- **Admins only**: integrations (list/detail/install/auth), MCP registry and sync, plugins (list/install/uninstall), all per-tool settings editors, skills listing and sync. These act on host-wide operator state — the CLI configs in the server's home directory — so they are not delegated.
+- **Admins only**: integrations (list/detail/install/auth), MCP registry and sync, plugins (list/install/uninstall), all per-tool settings editors, skills listing and sync, and the system-stats sample behind the sidebar metres. These act on host-wide operator state — the CLI configs in the server's home directory, or the machine's RAM/disk/CPU — so they are not delegated.
 
 ## Request hardening
 
@@ -46,6 +46,7 @@ Authorization is split:
 | integrations reads | 30 / min | `GET /api/integrations` (each `?refresh=1` spawns version probes) | user |
 | render token mint | 60 / min | `POST /api/render` | user |
 | render token redeem | 180 / min | `GET /api/render?token=…` — a token is reusable for 5 min and a remote one re-fetches on every read, so minting alone would not bound reads | user |
+| system stats | 60 / min | `GET /api/system/stats` — the sidebar metres poll every 5 s, so one open tab is 12/min | user |
 | admin writes | 30 / min each | MCP registry, per-tool settings PUT, skill sync (three separate buckets) | user |
 | MCP sync | 20 / min | `POST /api/mcp/sync` | user |
 
@@ -80,7 +81,7 @@ The other CLIs expose no answerable per-call callback, so their adapters carry a
 
 **What an agent can reach.** Agents run as the same OS user as the server. They can read the operator's home directory — `~/.claude`, `~/.codex`, `~/.qoder`, `~/.ssh`, OpenCode's SQLite credential store — **exactly as those CLIs can when run from a terminal**. Permission prompts and each tool's sandbox reduce this; they do not eliminate it. This is a stated limitation, not a bug: run the server as a dedicated OS user, with a home directory that holds only what agents should see, if that boundary matters.
 
-**No shell.** Every process spawn uses an argv array — CLI installs, plugin install/uninstall, MCP/config writes, version probes. Binaries and package specs come from the app's own registry, never from a request body, and installable specs must additionally appear verbatim in `INSTALL_ALLOWLIST` (empty = installs disabled). No user-supplied string reaches `sh -c`.
+**No shell.** Every process spawn uses an argv array — CLI installs, plugin install/uninstall, MCP/config writes, version probes. Binaries and package specs come from the app's own registry, never from a request body, and a spec must also be on the effective allowlist before it runs: the registry's exact pins when `INSTALL_ALLOWLIST` is unset, or whatever list the operator sets (an explicitly empty list disables installs). The allowlist can only narrow the registry, never widen it. No user-supplied string reaches `sh -c`.
 
 ## Secrets
 

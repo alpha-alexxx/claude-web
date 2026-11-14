@@ -2,6 +2,12 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { runArgv, type RunOptions, type RunResult } from "@/lib/exec/run";
+/**
+ * `formatMiB` lives in a client-safe module (`@/lib/format-bytes`) and is
+ * re-exported here for the server modules that already import it from disk.
+ */
+import { formatMiB } from "@/lib/format-bytes";
+export { formatMiB };
 
 /**
  * Disk preflight for pinned CLI installs.
@@ -100,9 +106,4 @@ export function planDisk(
       ? null
       : `needs ${formatMiB(requiredBytes)} free at ${dir}; ${formatMiB(freeBytes)} available`,
   };
-}
-
-export function formatMiB(bytes: number): string {
-  const mib = bytes / (1024 * 1024);
-  return mib >= 1024 ? `${(mib / 1024).toFixed(1)} GiB` : `${Math.round(mib)} MiB`;
 }

@@ -4,6 +4,7 @@ import path from "node:path";
 import { runArgv, type RunOptions, type RunResult } from "@/lib/exec/run";
 import { getEnv } from "@/lib/env";
 import { integrationSpec } from "./registry";
+import { installAllowlist } from "./allowlist";
 import { planDisk, freeBytesAt, npmGlobalPrefix, type DiskPlan } from "./disk";
 import type { ProviderId } from "@/lib/providers/types";
 import type { InstallRefusal } from "./types";
@@ -23,7 +24,9 @@ export type { InstallRefusal };
  * deliberately redundant:
  *
  *   - the package spec comes ONLY from the registry (never from a request);
- *   - it must ALSO appear verbatim in INSTALL_ALLOWLIST (empty = disabled);
+ *   - it must ALSO be on the effective allowlist (`installAllowlist`: the
+ *     registry's pins by default, or whatever INSTALL_ALLOWLIST narrows that to;
+ *     an explicitly empty list disables installs);
  *   - the command is `npm install -g <spec>` via an argv array — no shell, so
  *     a spec can never be interpreted as a command;
  *   - a disk preflight runs first, so a 437 MiB install cannot fill the VPS;
@@ -116,14 +119,16 @@ export async function planInstall(
       disk: null,
     };
   }
-  const allowlist = options.allowlist ?? getEnv().INSTALL_ALLOWLIST;
+  // Left unset = the registry's pins (see ./allowlist); an explicit empty list
+  // is the operator turning installs off, and must stay off here.
+  const allowlist = options.allowlist ?? installAllowlist(getEnv());
   if (allowlist.length === 0) {
     return {
       id,
       spec: spec.installSpec,
       refusal: "installs_disabled",
       reason:
-        "Server-side installs are disabled. Add the package to INSTALL_ALLOWLIST to enable them.",
+        "Server-side installs are disabled: INSTALL_ALLOWLIST is set to an empty list. Remove the setting to use the registry's pinned versions.",
       disk: null,
     };
   }

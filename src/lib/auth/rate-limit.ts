@@ -49,6 +49,13 @@ export const RATE_LIMITS = {
    * images mints and reads N), with headroom for a re-render or a retry.
    */
   renderRead: { max: 180, windowMs: 60_000 },
+  /**
+   * 60 system-stats reads / min per admin. The sidebar meter polls every five
+   * seconds, so one open tab is 12/min; the ceiling leaves room for a couple
+   * of tabs and a refresh burst without allowing an unattended script to keep
+   * the sampler hot.
+   */
+  system: { max: 60, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitConfig>;
 
 const windows = new Map<string, number[]>();

@@ -81,8 +81,8 @@ export interface IntegrationView {
 
 export interface IntegrationsView {
   integrations: IntegrationView[];
-  /** Server-side installs are entirely off when INSTALL_ALLOWLIST is empty. */
+  /** False only when INSTALL_ALLOWLIST is explicitly set to an empty list. */
   installsEnabled: boolean;
-  /** True when INSTALL_ALLOWLIST names something outside the registry. */
+  /** True when the effective allowlist names something outside the registry. */
   allowlistWarning: string | null;
 }

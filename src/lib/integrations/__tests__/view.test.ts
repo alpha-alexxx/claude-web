@@ -228,7 +228,26 @@ describe("integrationsView", () => {
     expect(view.allowlistWarning).not.toContain("@openai/codex@0.167.0");
   });
 
-  it("reports installs as disabled when the allowlist is empty", async () => {
+  it("enables installs from the registry pins when INSTALL_ALLOWLIST is unset", async () => {
+    // The shipped default: an operator who never sets the key still gets the
+    // three pinned installs, and no warning (the derived list is all known).
+    const real = await vi.importActual<typeof import("../installer")>("../installer");
+    vi.mocked(planInstall).mockImplementation(real.planInstall);
+    const prefixDir = path.join(tmpDir, "node_modules");
+    fs.mkdirSync(prefixDir, { recursive: true });
+    vi.mocked(npmGlobalPrefix).mockResolvedValue({ dir: prefixDir, resolved: true });
+
+    const view = await integrationsView();
+    expect(view.installsEnabled).toBe(true);
+    expect(view.allowlistWarning).toBeNull();
+    expect(view.integrations.filter((i) => i.install.allowed)).toHaveLength(3);
+  });
+
+  it("reports installs as disabled when the key is explicitly empty", async () => {
+    useDummyEnv({
+      DATABASE_PATH: path.join(tmpDir, "app.db"),
+      INSTALL_ALLOWLIST: "",
+    });
     const view = await integrationsView();
     expect(view.installsEnabled).toBe(false);
     expect(view.allowlistWarning).toBeNull();
@@ -257,6 +276,10 @@ describe("integrationsView", () => {
   });
 
   it("does not spawn npm at all when installs are disabled", async () => {
+    useDummyEnv({
+      DATABASE_PATH: path.join(tmpDir, "app.db"),
+      INSTALL_ALLOWLIST: "",
+    });
     const real = await vi.importActual<typeof import("../installer")>("../installer");
     vi.mocked(planInstall).mockImplementation(real.planInstall);
     await integrationsView();

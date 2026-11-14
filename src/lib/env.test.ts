@@ -84,12 +84,17 @@ describe("parseEnv", () => {
     ).toBe("/usr/local/bin/claude");
   });
 
-  it("INSTALL_ALLOWLIST parses into a package list; empty means disabled", () => {
-    expect(parseEnv(VALID).INSTALL_ALLOWLIST).toEqual([]);
+  it("INSTALL_ALLOWLIST keeps presence: unset vs explicitly empty differ", () => {
+    // Absent = "use the registry's pins" (installs work out of the box).
+    expect(parseEnv(VALID).INSTALL_ALLOWLIST).toEqual({ set: false, list: [] });
+    // Present but empty = installs disabled — the only way to say that.
     expect(
-      parseEnv({ ...VALID, INSTALL_ALLOWLIST: "@openai/codex@0.167.0" })
+      parseEnv({ ...VALID, INSTALL_ALLOWLIST: "" }).INSTALL_ALLOWLIST,
+    ).toEqual({ set: true, list: [] });
+    expect(
+      parseEnv({ ...VALID, INSTALL_ALLOWLIST: " @openai/codex@0.167.0 , " })
         .INSTALL_ALLOWLIST,
-    ).toEqual(["@openai/codex@0.167.0"]);
+    ).toEqual({ set: true, list: ["@openai/codex@0.167.0"] });
   });
 
   it("ALLOWED_DEV_ORIGINS parses into a trimmed hostname list and defaults to empty", () => {
