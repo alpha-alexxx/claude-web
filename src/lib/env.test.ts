@@ -11,7 +11,7 @@ describe("parseEnv", () => {
   it("accepts a minimal valid env and applies defaults", () => {
     const env = parseEnv(VALID);
     expect(env.DATABASE_PATH).toBe("./data/claude-web.db");
-    expect(env.HOST).toBe("127.0.0.1");
+    expect(env.HOST).toBe("localhost");
     expect(env.PORT).toBe(8765);
     expect(env.TRUST_PROXY).toBe(false);
     expect(env.ENABLED_PROVIDERS).toEqual(["claude"]);
@@ -90,5 +90,13 @@ describe("parseEnv", () => {
       parseEnv({ ...VALID, INSTALL_ALLOWLIST: "@openai/codex@0.167.0" })
         .INSTALL_ALLOWLIST,
     ).toEqual(["@openai/codex@0.167.0"]);
+  });
+
+  it("ALLOWED_DEV_ORIGINS parses into a trimmed hostname list and defaults to empty", () => {
+    expect(parseEnv(VALID).ALLOWED_DEV_ORIGINS).toEqual([]);
+    expect(
+      parseEnv({ ...VALID, ALLOWED_DEV_ORIGINS: " dev.example.com , a.b.org " })
+        .ALLOWED_DEV_ORIGINS,
+    ).toEqual(["dev.example.com", "a.b.org"]);
   });
 });

@@ -47,7 +47,12 @@ const EnvSchema = z.object({
       "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY must start with pk_ — a secret key must never be placed in a NEXT_PUBLIC_ variable",
     ),
 
-  HOST: z.string().default("127.0.0.1"),
+  /** Bind address. `localhost`, not `127.0.0.1`: Next normalizes every
+   * loopback request host to the literal `localhost`, and the router compares a
+   * proxy rewrite against an origin built from this value — a different
+   * spelling makes own-origin rewrites look external (self-proxy, `EPROTO`
+   * through a TLS tunnel). Both names reach the same socket. */
+  HOST: z.string().default("localhost"),
   PORT: z.coerce.number().int().min(1).max(65535).default(8765),
 
   /** Trust X-Forwarded-For from the direct peer (your
@@ -56,6 +61,12 @@ const EnvSchema = z.object({
 
   /** Per-conversation cwd containment. Empty = workspaces feature disabled. */
   ALLOWED_WORKSPACE_ROOTS: csvList(),
+
+  /** Dev-only. Tunnel hostnames the dev server trusts for `/_next` and
+   * `/_nextjs` requests. `next.config.ts` reads this key directly, because it is
+   * loaded outside the app runtime and cannot import this schema; it is parsed
+   * here too so a typo is visible at boot rather than as a 403 on an asset URL. */
+  ALLOWED_DEV_ORIGINS: csvList(),
 
   DEFAULT_MODEL: z.string().default("auto"),
 

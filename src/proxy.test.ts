@@ -42,7 +42,7 @@ vi.mock("@clerk/nextjs/server", () => ({
   },
 }));
 
-const { config } = await import("./proxy");
+const { config, resumeSelfRewrite } = await import("./proxy");
 
 /** A Clerk `auth` stand-in: callable, and carrying `protect`. */
 function fakeAuth(userId: string | null) {
@@ -148,5 +148,172 @@ describe("proxy", () => {
     const res = await run("/api/chat", { "x-forwarded-proto": "https, http" })
       .response;
     expect(res.headers.get("strict-transport-security")).toBeTruthy();
+  });
+
+  it("does not let a forged X-Forwarded-Proto assert HSTS even when the derived request URL is https", async () => {
+    // Next derives `req.nextUrl.protocol` from X-Forwarded-Proto, so with
+    // TRUST_PROXY off an untrusted client can make the request look encrypted.
+    // The header-derived verdict must therefore require TRUST_PROXY; only the
+    // absence of the header leaves the URL itself as evidence.
+    process.env.TRUST_PROXY = "false";
+    const request = new NextRequest("https://localhost/api/chat", {
+      headers: { "x-forwarded-proto": "https" },
+    });
+    const res = await (captured.handler!(fakeAuth("user_1"), request) as Promise<Response>);
+    expect(res.headers.get("strict-transport-security")).toBeNull();
+  });
+
+  it("attaches HSTS to an https request that carries no forwarded header", async () => {
+    // A dev server terminating TLS itself (or a test) has no proxy header, and
+    // its URL scheme is trustworthy — nothing asked us to believe a claim.
+    process.env.TRUST_PROXY = "false";
+    const request = new NextRequest("https://localhost/api/chat");
+    const res = await (captured.handler!(fakeAuth("user_1"), request) as Promise<Response>);
+    expect(res.headers.get("strict-transport-security")).toContain("max-age=63072000");
+  });
+});
+
+/**
+ * Clerk's `decorateRequest` always answers with an ABSOLUTE
+ * `x-middleware-rewrite` pointing back at the request URL:
+ *
+ *   if (res.headers.get("x-middleware-next") === "1") {
+ *     res.headers.delete("x-middleware-next");
+ *     rewriteURL = new URL(req.url);
+ *   }
+ *   ...
+ *   res.headers.set("x-middleware-rewrite", rewriteURL.href);
+ *
+ * (node_modules/@clerk/nextjs/dist/cjs/server/utils.js). Every layer below
+ * treats that as a routing instruction rather than as "carry on":
+ *
+ * - `resolve-routes.js` relativizes it against the origin it derived from the
+ *   `-H` bind value and only accepts it when the origins are IDENTICAL
+ *   (`relativize-url.js`). When they differ it stays absolute, `parseUrl()`
+ *   reports a protocol, and the router proxies the server to itself
+ *   (`router-server.js` → `proxyRequest`). Behind a TLS-terminating tunnel that
+ *   is a TLS handshake against a plaintext port — `EPROTO wrong version
+ *   number`, and a 500 on every request.
+ * - `adapter.js` cannot be handed a relative value either: it parses the header
+ *   with `new NextURL(value, {...})` and NO base URL, so `/chat` throws
+ *   `TypeError: Invalid URL (input: '/')` — every request 500s.
+ *
+ * The one form both sides understand is the header the rewrite replaced:
+ * `x-middleware-next: 1`. It skips the adapter's rewrite block entirely and
+ * tells the router to continue with the URL it already has — which is exactly
+ * what a rewrite to the request's own URL means.
+ */
+describe("resumeSelfRewrite", () => {
+  function withRewrite(value: string, headers: Record<string, string> = {}) {
+    return new Response("ok", {
+      headers: { "x-middleware-rewrite": value, ...headers },
+    });
+  }
+
+  it("turns a rewrite to the request's own URL into `x-middleware-next`", () => {
+    const req = new NextRequest("https://localhost:8765/chat?x=1");
+    const res = resumeSelfRewrite(
+      req,
+      withRewrite("https://localhost:8765/chat?x=1"),
+    );
+    expect(res.headers.get("x-middleware-next")).toBe("1");
+    expect(res.headers.get("x-middleware-rewrite")).toBeNull();
+  });
+
+  it("treats a loopback alias (127.0.0.1 vs localhost) as this server", () => {
+    // Clerk derives the rewrite from `req.url`, which Next has already
+    // normalized to `localhost`, while the router derives its own origin from
+    // the bind address. Both spellings name this process.
+    const req = new NextRequest("http://127.0.0.1:8765/chat");
+    const res = resumeSelfRewrite(
+      req,
+      withRewrite("https://localhost:8765/chat"),
+    );
+    expect(res.headers.get("x-middleware-next")).toBe("1");
+    expect(res.headers.get("x-middleware-rewrite")).toBeNull();
+  });
+
+  it("leaves a rewrite to a DIFFERENT path absolute", () => {
+    // Clerk's notFound() path: `NextResponse.rewrite(new URL('/clerk_<ts>',
+    // req.url))`. It must still rewrite — converting it to `next` would render
+    // the protected page instead of the 404.
+    const req = new NextRequest("https://localhost:8765/chat/abc");
+    const res = resumeSelfRewrite(
+      req,
+      withRewrite("https://localhost:8765/clerk_1794593063808"),
+    );
+    expect(res.headers.get("x-middleware-rewrite")).toBe(
+      "https://localhost:8765/clerk_1794593063808",
+    );
+    expect(res.headers.get("x-middleware-next")).toBeNull();
+  });
+
+  it("leaves a rewrite that only changes the query absolute", () => {
+    const req = new NextRequest("https://localhost:8765/chat?x=1");
+    const res = resumeSelfRewrite(
+      req,
+      withRewrite("https://localhost:8765/chat?x=2"),
+    );
+    expect(res.headers.get("x-middleware-rewrite")).toBe(
+      "https://localhost:8765/chat?x=2",
+    );
+  });
+
+  it("leaves a loopback rewrite on a different port absolute", () => {
+    // Same host, different port is a different server — proxying it is correct.
+    const req = new NextRequest("https://localhost:8765/chat");
+    const res = resumeSelfRewrite(
+      req,
+      withRewrite("https://localhost:3000/chat"),
+    );
+    expect(res.headers.get("x-middleware-rewrite")).toBe(
+      "https://localhost:3000/chat",
+    );
+  });
+
+  it("leaves an external rewrite absolute", () => {
+    const req = new NextRequest("https://localhost:8765/");
+    const res = resumeSelfRewrite(
+      req,
+      withRewrite("https://example.com/elsewhere"),
+    );
+    expect(res.headers.get("x-middleware-rewrite")).toBe(
+      "https://example.com/elsewhere",
+    );
+    expect(res.headers.get("x-middleware-next")).toBeNull();
+  });
+
+  it("keeps a same-origin rewrite exact — path and query both compared", () => {
+    // The public origin case: a real hostname, not loopback.
+    const req = new NextRequest("https://app.example.com/chat?a=1");
+    const same = resumeSelfRewrite(
+      req,
+      withRewrite("https://app.example.com/chat?a=1"),
+    );
+    expect(same.headers.get("x-middleware-next")).toBe("1");
+    const different = resumeSelfRewrite(
+      req,
+      withRewrite("https://app.example.com/chat?a=1&b=2"),
+    );
+    expect(different.headers.get("x-middleware-rewrite")).toBe(
+      "https://app.example.com/chat?a=1&b=2",
+    );
+  });
+
+  it("returns a response without a rewrite untouched", () => {
+    const req = new NextRequest("https://localhost:8765/");
+    const res = resumeSelfRewrite(req, new Response("ok"));
+    expect(res.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(res.headers.get("x-middleware-next")).toBeNull();
+  });
+
+  it("keeps every Set-Cookie, because losing one is a sign-out loop", () => {
+    const req = new NextRequest("https://localhost:8765/chat");
+    const original = withRewrite("https://localhost:8765/chat", {
+      "set-cookie": "__session=abc; Path=/",
+    });
+    const res = resumeSelfRewrite(req, original);
+    expect(res.headers.get("set-cookie")).toBe("__session=abc; Path=/");
+    expect(res.headers.get("x-middleware-next")).toBe("1");
   });
 });

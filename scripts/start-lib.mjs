@@ -6,16 +6,23 @@ import { createRequire } from "node:module";
  *
  * Why a launcher exists at all: `next start` and `next dev` bind 0.0.0.0:3000
  * by default (only the PORT half has an env binding, and the docs say `PORT`
- * "cannot be set in `.env`"). This app's env schema declares HOST=127.0.0.1 /
+ * "cannot be set in `.env`"). This app's env schema declares HOST=localhost /
  * PORT=8765 and the plan is explicit that it must not listen on a public
  * interface unless the operator says so. Neither Next nor the schema can
  * enforce that on their own, so the launcher reads `.env` and passes the two
  * values as flags. The defaults here MATCH `lib/env.ts`; if they ever
  * diverge, the server would silently listen somewhere the UI does not say
  * it does.
+ *
+ * `localhost`, not `127.0.0.1`: Next normalizes every loopback request host to
+ * the literal string `localhost` (`server/web/next-url.js`), while the router
+ * compares a middleware rewrite against an origin built from this bind value.
+ * The two must be spelled the same or an own-origin rewrite to another path is
+ * classified external and the server proxies itself — `EPROTO wrong version
+ * number` behind a TLS-terminating tunnel. Both names reach the same socket
+ * (`/etc/hosts` maps localhost to 127.0.0.1), so nothing else changes.
  */
-
-export const DEFAULT_HOST = "127.0.0.1";
+export const DEFAULT_HOST = "localhost";
 export const DEFAULT_PORT = 8765;
 
 /** Subcommands that bind a socket and therefore need the derived flags. */

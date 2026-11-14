@@ -36,17 +36,24 @@ const isApiRoute = createRouteMatcher(["/api(.*)"]);
  * and it is only read when `TRUST_PROXY` is set, because an untrusted client can
  * set that header to anything, and a false HSTS makes the site unreachable over
  * http for a year.
+ *
+ * `req.nextUrl.protocol` is itself derived from that same header by Next, so it
+ * is evidence only when no header was sent: then the scheme came from the
+ * socket (local TLS), not from a claim.
  */
 function isSecureRequest(req: NextRequest): boolean {
-  if (req.nextUrl.protocol === "https:") return true;
+  const forwarded = req.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim()
+    .toLowerCase();
   // `getEnv()` is deliberately not imported here: the Proxy runs before the app
   // and must not take a hard dependency on a schema that fails fast. This reads
   // the same two spellings the env schema accepts.
   const trustProxy = process.env.TRUST_PROXY;
-  if (trustProxy === "true" || trustProxy === "1") {
-    return req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() === "https";
-  }
-  return false;
+  const trustsProxy = trustProxy === "true" || trustProxy === "1";
+  if (!forwarded) return req.nextUrl.protocol === "https:";
+  return trustsProxy && forwarded === "https";
 }
 
 function withHsts(req: NextRequest, res: NextResponse): NextResponse {
@@ -57,7 +64,95 @@ function withHsts(req: NextRequest, res: NextResponse): NextResponse {
   return res;
 }
 
-export default clerkMiddleware(
+/**
+ * This machine, under any of the names a loopback connection can arrive on.
+ *
+ * Next derives the request origin from the server's bind address while Clerk
+ * derives its rewrite from the URL the request arrived with, so the two
+ * routinely disagree about which spelling names the same process. Both compare
+ * as "us" here; every other host still has to match exactly.
+ */
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function isLoopback(url: URL): boolean {
+  return LOOPBACK_HOSTNAMES.has(url.hostname.replace(/^\[|\]$/g, "").toLowerCase());
+}
+
+/**
+ * Turn "rewrite back to the URL we are already on" into "carry on".
+ *
+ * Clerk's `decorateRequest` (dist/cjs/server/utils.js) deletes the
+ * `x-middleware-next` marker and replaces it with an ABSOLUTE
+ * `x-middleware-rewrite` pointing at the request URL. Every layer below reads
+ * that as a routing instruction rather than as a no-op:
+ *
+ * - `resolve-routes.js` relativizes the value against an origin derived from the
+ *   `-H` bind address and only accepts it when the origins are IDENTICAL
+ *   (`relativize-url.js`). They routinely are not — Next has already normalized
+ *   the rewrite's host to `localhost` (`next-url.js`), while the derived origin
+ *   is whatever the server was bound to. A mismatch leaves the value absolute,
+ *   `parseUrl()` reports a protocol, and `router-server.js` proxies the server
+ *   to itself. Through a TLS-terminating tunnel that is a TLS handshake against
+ *   a plaintext port ("EPROTO wrong version number"); over plain http the
+ *   request is simply rendered twice. Either way: 500.
+ * - A RELATIVE value is not an escape hatch: `adapter.js` parses the header with
+ *   `new NextURL(value, …)` and no base URL, so `/chat` throws
+ *   `TypeError: Invalid URL (input: '/')` and every request 500s.
+ *
+ * The form both layers understand is the marker Clerk removed. `x-middleware-next`
+ * skips the adapter's rewrite block outright, and `resolve-routes.js` consumes
+ * and deletes it, leaving the request URL untouched — which is exactly what a
+ * rewrite to the request's own URL asks for.
+ *
+ * Only an exact self-rewrite is converted. A rewrite to a different path is a
+ * real rewrite (Clerk's `notFound()` emits `/clerk_<timestamp>`, and calling
+ * that a no-op would render the protected page), and so is one to a different
+ * host or port.
+ */
+export function resumeSelfRewrite(req: NextRequest, res: Response): Response {
+  const value = res.headers.get("x-middleware-rewrite");
+  // No rewrite at all: the router already carries on, and an already-relative
+  // value is not something we produce (but is harmless left alone).
+  if (!value || !/^[a-z][a-z0-9+.-]*:/i.test(value)) return res;
+
+  let target: URL;
+  try {
+    target = new URL(value, req.nextUrl);
+  } catch {
+    return res;
+  }
+  const self = req.nextUrl;
+  const sameHost =
+    target.hostname.toLowerCase() === self.hostname.toLowerCase() ||
+    (isLoopback(target) && isLoopback(self));
+  if (!sameHost || target.port !== self.port) return res;
+  if (
+    target.pathname !== self.pathname ||
+    target.search !== self.search ||
+    target.hash !== self.hash
+  ) {
+    return res;
+  }
+
+  const headers = new Headers(res.headers);
+  headers.delete("x-middleware-rewrite");
+  headers.set("x-middleware-next", "1");
+  try {
+    res.headers.delete("x-middleware-rewrite");
+    res.headers.set("x-middleware-next", "1");
+    return res;
+  } catch {
+    // Immutable headers: rebuild around a copy. It carries every Set-Cookie
+    // Clerk just issued — dropping one is a sign-out loop.
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers,
+    });
+  }
+}
+
+const clerkProxy = clerkMiddleware(
   async (auth, req) => {
     const { pathname } = req.nextUrl;
 
@@ -108,6 +203,19 @@ export default clerkMiddleware(
     },
   },
 );
+
+/**
+ * Clerk's middleware is wrapped rather than exported directly: `decorateRequest`
+ * always writes an absolute `x-middleware-rewrite` back to the request URL, and
+ * under a tunnel that absolute rewrite is what the router misreads as external.
+ * See `resumeSelfRewrite`.
+ */
+export default async function proxy(
+  req: NextRequest,
+  event: Parameters<typeof clerkProxy>[1],
+): Promise<Response> {
+  return resumeSelfRewrite(req, await clerkProxy(req, event));
+}
 
 export const config = {
   matcher: [

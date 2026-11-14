@@ -21,6 +21,7 @@ export function clearDummyEnv(): void {
   for (const k of [
     "DATABASE_PATH",
     "ALLOWED_WORKSPACE_ROOTS",
+    "ALLOWED_DEV_ORIGINS",
     "DEFAULT_MODEL",
     "MAX_CONCURRENT_TURNS",
     "TURN_TIMEOUT_MS",

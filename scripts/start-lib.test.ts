@@ -16,6 +16,18 @@ const libPath = path.join(
 );
 
 describe("startArgs", () => {
+  it("binds the spelling Next normalizes request hosts to", () => {
+    // The router builds its own origin for a request from the `-H` value
+    // (`${hostname}:${port}`) and only treats a middleware rewrite as internal
+    // when that origin matches the rewrite's. Next has already normalized the
+    // rewrite's host to `localhost` (`next-url.js` rewrites 127.0.0.1/::1), so
+    // binding `127.0.0.1` makes every own-origin rewrite to a DIFFERENT path
+    // look external and the server proxies itself — a TLS handshake against a
+    // plaintext port behind a tunnel. Both spellings reach the same socket, so
+    // the bind has to use the one the comparison uses.
+    expect(DEFAULT_HOST).toBe("localhost");
+  });
+
   it("defaults to loopback on the app's declared port", () => {
     expect(startArgs({})).toEqual([
       "start",
